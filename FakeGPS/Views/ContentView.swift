@@ -33,6 +33,12 @@ struct ContentView: View {
         }
         .frame(minWidth: 800, minHeight: 600)
         .task {
+            // 取得目前位置作為預設座標
+            let helper = LocationHelper()
+            if let coord = await helper.getCurrentLocation() {
+                selectedLatitude = coord.latitude
+                selectedLongitude = coord.longitude
+            }
             await deviceManager.detectDevice()
         }
     }
@@ -68,8 +74,22 @@ struct ContentView: View {
             }
             .pickerStyle(.segmented)
 
+            if !isTunnelReady {
+                GroupBox {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("請先啟動 Tunnel 再操作定位功能")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             if selectedTab == 0 {
                 singlePointPanel
+                    .disabled(!isTunnelReady)
+                    .opacity(isTunnelReady ? 1 : 0.5)
             } else {
                 RouteView(routeSimulator: routeSimulator) {
                     routeSimulator.addPoint(
@@ -77,6 +97,8 @@ struct ContentView: View {
                         longitude: selectedLongitude
                     )
                 }
+                .disabled(!isTunnelReady)
+                .opacity(isTunnelReady ? 1 : 0.5)
             }
 
             // Error display
@@ -170,6 +192,15 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// Tunnel 是否就緒（iOS 17+ 需要 tunnel，其他版本直接通過）
+    private var isTunnelReady: Bool {
+        guard let device = deviceManager.device else { return false }
+        if device.isiOS17OrLater {
+            return deviceManager.tunnelRunning
+        }
+        return true
     }
 
     private var statusColor: Color {

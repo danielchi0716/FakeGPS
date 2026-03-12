@@ -21,6 +21,7 @@
 		AA000012 /* location_streamer.py in Resources */ = {isa = PBXBuildFile; fileRef = AB000013; };
 		AA000013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AB000014; };
 		AA000014 /* JoystickControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000015; };
+		AA000015 /* LocationHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000016; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +40,7 @@
 		AB000013 /* location_streamer.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = location_streamer.py; sourceTree = "<group>"; };
 		AB000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AB000015 /* JoystickControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoystickControlView.swift; sourceTree = "<group>"; };
+		AB000016 /* LocationHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationHelper.swift; sourceTree = "<group>"; };
 		AC000001 /* FakeGPS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FakeGPS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -111,6 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				AB000008 /* ShellExecutor.swift */,
+				AB000016 /* LocationHelper.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -214,6 +217,7 @@
 				AA000010 /* RouteSimulator.swift in Sources */,
 				AA000011 /* RouteView.swift in Sources */,
 				AA000014 /* JoystickControlView.swift in Sources */,
+				AA000015 /* LocationHelper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -350,6 +354,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocationUsageDescription = "用於取得目前位置作為地圖預設位置";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -376,6 +381,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocationUsageDescription = "用於取得目前位置作為地圖預設位置";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
