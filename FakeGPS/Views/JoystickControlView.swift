@@ -69,6 +69,7 @@ struct JoystickControlView: View {
         .onKeyPress(.rightArrow) { startMoving(.right); return .handled }
         .onKeyPress(.return) { stopMoving(); return .handled }
         .onKeyPress(.escape) { stopMoving(); return .handled }
+        .onDisappear { stopMoving() }
     }
 
     // MARK: - Direction Pad
