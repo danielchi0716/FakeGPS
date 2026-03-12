@@ -39,8 +39,32 @@ jobs:
           cd build/Build/Products/Release
           zip -r -y FakeGPS.zip FakeGPS.app
 
+      - name: Generate release notes
+        id: notes
+        run: |
+          # Find previous tag
+          PREV_TAG=$(git tag --sort=-v:refname | grep '^v' | sed -n '2p')
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"- %s" "$PREV_TAG"..HEAD --no-merges | grep -v "Co-Authored-By")
+          else
+            COMMITS=$(git log --pretty=format:"- %s" --no-merges | grep -v "Co-Authored-By")
+          fi
+          echo "PREV_TAG=$PREV_TAG" >> "$GITHUB_OUTPUT"
+          # Write multiline output
+          {
+            echo "body<<EOF"
+            echo "## Changes"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              echo "Changes since $PREV_TAG:"
+            fi
+            echo ""
+            echo "$COMMITS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: build/Build/Products/Release/FakeGPS.zip
-          generate_release_notes: true
+          body: ${{ steps.notes.outputs.body }}
