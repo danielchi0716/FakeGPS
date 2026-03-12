@@ -79,6 +79,12 @@ struct MapPickerView: View {
                 }
             }
 
+            .onMapCameraChange { context in
+                currentZoom = context.region.span
+            }
+            .onChange(of: selectedLatitude) { _, _ in syncPinFromBinding() }
+            .onChange(of: selectedLongitude) { _, _ in syncPinFromBinding() }
+
             // Search bar overlay
             VStack(spacing: 4) {
                 HStack {
@@ -122,6 +128,19 @@ struct MapPickerView: View {
             }
         }
     }
+
+    private func syncPinFromBinding() {
+        let coord = CLLocationCoordinate2D(latitude: selectedLatitude, longitude: selectedLongitude)
+        pinLocation = coord
+        cameraPosition = .region(
+            MKCoordinateRegion(
+                center: coord,
+                span: currentZoom
+            )
+        )
+    }
+
+    @State private var currentZoom: MKCoordinateSpan = MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
 
     private func searchLocation() {
         let request = MKLocalSearch.Request()

@@ -123,6 +123,22 @@ struct ContentView: View {
             .controlSize(.large)
             .buttonStyle(.bordered)
             .disabled(!deviceManager.isSimulating)
+
+            if deviceManager.isSimulating {
+                Divider()
+
+                JoystickControlView(
+                    latitude: $selectedLatitude,
+                    longitude: $selectedLongitude
+                ) {
+                    Task {
+                        await deviceManager.setLocation(
+                            latitude: selectedLatitude,
+                            longitude: selectedLongitude
+                        )
+                    }
+                }
+            }
         }
     }
 

@@ -19,6 +19,8 @@
 		AA000010 /* RouteSimulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000011; };
 		AA000011 /* RouteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000012; };
 		AA000012 /* location_streamer.py in Resources */ = {isa = PBXBuildFile; fileRef = AB000013; };
+		AA000013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AB000014; };
+		AA000014 /* JoystickControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000015; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,6 +37,8 @@
 		AB000011 /* RouteSimulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteSimulator.swift; sourceTree = "<group>"; };
 		AB000012 /* RouteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteView.swift; sourceTree = "<group>"; };
 		AB000013 /* location_streamer.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = location_streamer.py; sourceTree = "<group>"; };
+		AB000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AB000015 /* JoystickControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoystickControlView.swift; sourceTree = "<group>"; };
 		AC000001 /* FakeGPS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FakeGPS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -67,6 +71,7 @@
 				AE000005 /* Views */,
 				AE000006 /* Utilities */,
 				AE000008 /* Resources */,
+				AB000014 /* Assets.xcassets */,
 			);
 			path = FakeGPS;
 			sourceTree = "<group>";
@@ -97,6 +102,7 @@
 				AB000004 /* CoordinateInputView.swift */,
 				AB000005 /* DeviceStatusView.swift */,
 				AB000012 /* RouteView.swift */,
+				AB000015 /* JoystickControlView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -185,6 +191,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA000012 /* location_streamer.py in Resources */,
+				AA000013 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -206,6 +213,7 @@
 				AA000009 /* RoutePoint.swift in Sources */,
 				AA000010 /* RouteSimulator.swift in Sources */,
 				AA000011 /* RouteView.swift in Sources */,
+				AA000014 /* JoystickControlView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
