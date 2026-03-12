@@ -111,7 +111,7 @@ actor ShellExecutor {
     private static func promptForPassword() async throws -> String {
         let script = """
         tell application "System Events"
-            set pwd to text returned of (display dialog "FakeGPS 需要管理員權限來啟動 Tunnel" default answer "" with hidden answer with title "輸入密碼" buttons {"取消", "確定"} default button "確定")
+            set pwd to text returned of (display dialog "FakeGPS 需要管理員權限來啟動 Tunnel\n請輸入 Mac 登入密碼：" default answer "" with hidden answer with title "輸入密碼" buttons {"取消", "確定"} default button "確定")
         end tell
         """
 
