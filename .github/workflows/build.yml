@@ -1,0 +1,40 @@
+name: Build FakeGPS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Build
+        run: |
+          xcodebuild -project FakeGPS.xcodeproj \
+            -scheme FakeGPS \
+            -configuration Release \
+            -derivedDataPath build \
+            -arch arm64 -arch x86_64 \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package app
+        run: |
+          cd build/Build/Products/Release
+          zip -r -y FakeGPS.zip FakeGPS.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FakeGPS
+          path: build/Build/Products/Release/FakeGPS.zip
