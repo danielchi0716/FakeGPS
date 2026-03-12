@@ -28,7 +28,7 @@ pymobiledevice3 usbmux list
 
 ## 下載與執行
 
-從 [GitHub Actions](https://github.com/danielchi0716/FakeGPS/actions) 下載最新的 `FakeGPS.zip`，解壓縮後，在終端機執行以下指令移除 macOS 下載隔離標記：
+從 [Releases](https://github.com/danielchi0716/FakeGPS/releases/latest) 下載最新的 `FakeGPS.zip`，解壓縮後，在終端機執行以下指令移除 macOS 下載隔離標記：
 
 ```bash
 xattr -d com.apple.quarantine /path/to/FakeGPS.app
