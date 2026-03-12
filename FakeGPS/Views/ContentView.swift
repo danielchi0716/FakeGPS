@@ -4,6 +4,7 @@ import MapKit
 struct ContentView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @StateObject private var routeSimulator = RouteSimulator()
+    @StateObject private var savedLocationStore = SavedLocationStore()
 
     @State private var selectedLatitude: Double = 25.033
     @State private var selectedLongitude: Double = 121.5654
@@ -101,6 +102,24 @@ struct ContentView: View {
                 .opacity(isTunnelReady ? 1 : 0.5)
             }
 
+            Divider()
+
+            SavedLocationsView(
+                store: savedLocationStore,
+                latitude: $selectedLatitude,
+                longitude: $selectedLongitude
+            ) {
+                // 選取收藏地點時自動設定位置
+                if isTunnelReady {
+                    Task {
+                        await deviceManager.setLocation(
+                            latitude: selectedLatitude,
+                            longitude: selectedLongitude
+                        )
+                    }
+                }
+            }
+
             // Error display
             if let error = deviceManager.errorMessage {
                 Text(error)
@@ -194,13 +213,10 @@ struct ContentView: View {
         }
     }
 
-    /// Tunnel 是否就緒（iOS 17+ 需要 tunnel，其他版本直接通過）
+    /// Tunnel 是否就緒（需要 tunnel 才能模擬定位）
     private var isTunnelReady: Bool {
-        guard let device = deviceManager.device else { return false }
-        if device.isiOS17OrLater {
-            return deviceManager.tunnelRunning
-        }
-        return true
+        guard deviceManager.device != nil else { return false }
+        return deviceManager.tunnelRunning
     }
 
     private var statusColor: Color {
