@@ -14,6 +14,7 @@
 - 在地圖上點選任意位置設定模擬座標
 - 支援搜尋地址 / 地標快速定位
 - 手動輸入經緯度（含格式驗證）
+- 搖桿控制即時移動，可調整移動速度
 
 **路線模擬**
 - 建立多點路線，模擬裝置沿路線移動
@@ -26,14 +27,17 @@
 - 顯示裝置名稱、型號、系統版本與 UDID
 - Tunnel 連線管理（iOS 17+）
 
+**其他**
+- 收藏地點，快速切換常用座標
+- 所有依賴已內建，下載即可使用，無需額外安裝 Python 或其他工具
+
 ## 系統需求
 
 | 項目 | 需求 |
 |------|------|
 | macOS | 14.0 或以上 |
-| Python | 3.8+ |
 | iOS 裝置 | iOS 17+，透過 USB 連接 |
-| 其他 | 裝置需開啟開發者模式並信任此 Mac |
+| iPhone 設定 | 需開啟開發者模式並信任此 Mac |
 
 ## 安裝
 
@@ -52,29 +56,19 @@ xattr -d com.apple.quarantine ~/Downloads/FakeGPS.app
 
 > 如果 app 不在 Downloads 資料夾，請將路徑替換為實際位置。也可以先輸入 `xattr -d com.apple.quarantine `（注意結尾空格），再將 FakeGPS.app 拖入終端機視窗，會自動填入路徑。
 
-### 2. 安裝 pymobiledevice3
+### 2. iPhone 開啟開發者模式
 
-[pymobiledevice3](https://github.com/doronz88/pymobiledevice3) 是與 iOS 裝置通訊的核心工具，負責裝置偵測、建立 Tunnel 與位置模擬。
+1. 前往 **設定 → 隱私權與安全性**，滑到最底部找到 **開發者模式**
+2. 開啟開發者模式，iPhone 會要求重新啟動
+3. 重啟後點擊確認啟用
 
-```bash
-pip3 install -U pymobiledevice3
-```
-
-### 3. 驗證安裝
-
-將 iOS 裝置透過 USB 連接至 Mac，執行：
-
-```bash
-pymobiledevice3 usbmux list
-```
-
-能看到裝置資訊代表安裝成功。
+> 如果看不到「開發者模式」選項，請先用 USB 連接 Mac 並開啟 Xcode，選項就會出現。
 
 ## 使用方式
 
-1. 透過 USB 將 iPhone 連接至 Mac
+1. 透過 USB 將 iPhone 連接至 Mac，在 iPhone 上點擊「**信任此電腦**」
 2. 開啟 FakeGPS，等待自動偵測裝置
-3. 點擊「啟動 Tunnel」建立連線（需輸入系統密碼）
+3. 點擊「啟動 Tunnel」建立連線（需輸入 Mac 登入密碼）
 4. 在地圖上點選目標位置，或手動輸入座標
 5. 點擊「設定位置」開始模擬
 6. 點擊「清除位置」恢復真實定位
@@ -94,7 +88,6 @@ pymobiledevice3 usbmux list
 
 **Q: Tunnel 啟動失敗？**
 - Tunnel 需要 sudo 權限，請在彈出的密碼視窗輸入 Mac 登入密碼
-- 確認 pymobiledevice3 已正確安裝
 
 **Q: 打開 app 顯示「無法驗證開發者」？**
 - 執行 `xattr -d com.apple.quarantine /path/to/FakeGPS.app`

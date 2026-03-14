@@ -14,6 +14,22 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build Python helper with PyInstaller
+        run: |
+          pip install pymobiledevice3 pyinstaller
+          pyinstaller --onefile \
+            --name location_streamer \
+            --collect-all pymobiledevice3 \
+            FakeGPS/Resources/location_streamer.py
+          file dist/location_streamer
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
@@ -31,8 +47,18 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      - name: Verify universal binary
-        run: file build/Build/Products/Release/FakeGPS.app/Contents/MacOS/FakeGPS
+      - name: Embed Python helper in app bundle
+        run: |
+          APP=build/Build/Products/Release/FakeGPS.app
+          cp dist/location_streamer "$APP/Contents/Resources/"
+          chmod +x "$APP/Contents/Resources/location_streamer"
+
+      - name: Verify binaries
+        run: |
+          echo "=== Swift binary ==="
+          file build/Build/Products/Release/FakeGPS.app/Contents/MacOS/FakeGPS
+          echo "=== Python helper ==="
+          file build/Build/Products/Release/FakeGPS.app/Contents/Resources/location_streamer
 
       - name: Package app
         run: |
@@ -42,7 +68,6 @@ jobs:
       - name: Generate release notes
         id: notes
         run: |
-          # Find previous tag
           PREV_TAG=$(git tag --sort=-v:refname | grep '^v' | sed -n '2p')
           if [ -n "$PREV_TAG" ]; then
             COMMITS=$(git log --pretty=format:"- %s" "$PREV_TAG"..HEAD --no-merges | grep -v "Co-Authored-By")
@@ -50,7 +75,6 @@ jobs:
             COMMITS=$(git log --pretty=format:"- %s" --no-merges | grep -v "Co-Authored-By")
           fi
           echo "PREV_TAG=$PREV_TAG" >> "$GITHUB_OUTPUT"
-          # Write multiline output
           {
             echo "body<<EOF"
             echo "## Changes"
