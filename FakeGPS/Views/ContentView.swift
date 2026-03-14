@@ -211,6 +211,21 @@ struct ContentView: View {
                     .monospaced()
                     .foregroundStyle(.secondary)
             }
+
+            Divider()
+                .frame(height: 12)
+
+            Link(destination: URL(string: "https://ko-fi.com/danielchi0716")!) {
+                HStack(spacing: 4) {
+                    Image(systemName: "heart.fill")
+                    Text("Buy me a coffee")
+                }
+                .font(.caption)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.pink, in: Capsule())
+            }
         }
     }
 
