@@ -28,6 +28,8 @@ jobs:
           pyinstaller --onefile \
             --name location_streamer \
             --collect-all pymobiledevice3 \
+            --collect-all readchar \
+            --copy-metadata readchar \
             FakeGPS/Resources/location_streamer.py
           file dist/location_streamer
 
