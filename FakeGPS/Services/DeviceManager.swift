@@ -244,7 +244,7 @@ class DeviceManager: ObservableObject {
             let (process, stdoutPipe, stderrPipe) = try await ShellExecutor.startSudoProcess(
                 command: command,
                 arguments: arguments,
-                cleanupBefore: "pkill -f 'location_streamer.*tunneld' 2>/dev/null; pkill -f 'pymobiledevice3.*tunneld' 2>/dev/null; sleep 1"
+                cleanupBefore: "pkill -f 'location_streamer.*tunneld' 2>/dev/null; pkill -f 'pymobiledevice3.*tunneld' 2>/dev/null; lsof -ti :49151 | xargs kill -9 2>/dev/null; sleep 1"
             )
             tunnelProcess = process
             statusMessage = "Tunneld 啟動中..."
@@ -326,7 +326,7 @@ class DeviceManager: ObservableObject {
         if let process = tunnelProcess, process.isRunning {
             let pid = process.processIdentifier
             process.terminate()
-            let killScript = "kill -- -\(pid) 2>/dev/null; pkill -P \(pid) 2>/dev/null; pkill -f 'location_streamer.*tunneld' 2>/dev/null; pkill -f 'pymobiledevice3.*tunneld' 2>/dev/null; true"
+            let killScript = "kill -- -\(pid) 2>/dev/null; pkill -P \(pid) 2>/dev/null; pkill -f 'location_streamer.*tunneld' 2>/dev/null; pkill -f 'pymobiledevice3.*tunneld' 2>/dev/null; lsof -ti :49151 | xargs kill -9 2>/dev/null; true"
             try? Process.run(URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", killScript])
         }
         tunnelProcess = nil
