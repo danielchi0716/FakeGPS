@@ -3,6 +3,7 @@ import SwiftUI
 struct RouteView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @ObservedObject var routeSimulator: RouteSimulator
+    @ObservedObject var savedRouteStore: SavedRouteStore
 
     var onAddCurrentLocation: () -> Void
 
@@ -146,6 +147,15 @@ struct RouteView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
+            }
+
+            Divider()
+
+            SavedRoutesView(
+                store: savedRouteStore,
+                currentPoints: routeSimulator.routePoints
+            ) { points in
+                routeSimulator.loadPoints(points)
             }
 
             // Start/Stop

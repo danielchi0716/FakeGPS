@@ -47,6 +47,11 @@ class RouteSimulator: ObservableObject {
         routePoints.move(fromOffsets: source, toOffset: destination)
     }
 
+    func loadPoints(_ points: [RoutePoint]) {
+        stop()
+        routePoints = points
+    }
+
     func clearAllPoints() {
         stop()
         routePoints.removeAll()

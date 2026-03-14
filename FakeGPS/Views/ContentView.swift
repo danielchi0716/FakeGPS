@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @StateObject private var routeSimulator = RouteSimulator()
     @StateObject private var savedLocationStore = SavedLocationStore()
+    @StateObject private var savedRouteStore = SavedRouteStore()
 
     @State private var selectedLatitude: Double = 25.033
     @State private var selectedLongitude: Double = 121.5654
@@ -92,7 +93,7 @@ struct ContentView: View {
                     .disabled(!isTunnelReady)
                     .opacity(isTunnelReady ? 1 : 0.5)
             } else {
-                RouteView(routeSimulator: routeSimulator) {
+                RouteView(routeSimulator: routeSimulator, savedRouteStore: savedRouteStore) {
                     routeSimulator.addPoint(
                         latitude: selectedLatitude,
                         longitude: selectedLongitude
