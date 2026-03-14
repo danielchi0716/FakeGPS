@@ -103,37 +103,40 @@ async def mode_streamer(udid):
 # ── Mode: list ──────────────────────────────────────────────────
 
 def mode_list():
+    """List connected devices with full info via lockdown."""
     import asyncio
     import inspect
     from pymobiledevice3.usbmux import list_devices
     from pymobiledevice3.lockdown import create_using_usbmux
 
-    devices = list_devices()
-    if inspect.iscoroutine(devices):
-        devices = asyncio.run(devices)
+    async def _list():
+        devs = list_devices()
+        if inspect.iscoroutine(devs):
+            devs = await devs
 
-    result = []
-    for d in devices:
-        serial = getattr(d, "serial", "unknown")
-        info = {
-            "UniqueDeviceID": serial,
-            "DeviceName": "iPhone",
-            "ProductType": "unknown",
-            "ProductVersion": "unknown",
-        }
-        try:
-            lockdown = create_using_usbmux(serial=serial)
-            all_values = lockdown.all_values
-            if inspect.iscoroutine(all_values):
-                all_values = asyncio.run(all_values)
-            info["DeviceName"] = all_values.get("DeviceName", "iPhone")
-            info["ProductType"] = all_values.get("ProductType", "unknown")
-            info["ProductVersion"] = all_values.get("ProductVersion", "unknown")
-            info["UniqueDeviceID"] = all_values.get("UniqueDeviceID", serial)
-        except Exception:
-            pass
-        result.append(info)
-    print(json.dumps(result), flush=True)
+        result = []
+        for d in devs:
+            serial = getattr(d, "serial", "unknown")
+            info = {
+                "UniqueDeviceID": serial,
+                "DeviceName": "iPhone",
+                "ProductType": "unknown",
+                "ProductVersion": "unknown",
+            }
+            try:
+                lockdown = await create_using_usbmux(serial=serial)
+                vals = lockdown.all_values
+                if isinstance(vals, dict):
+                    info["DeviceName"] = vals.get("DeviceName", "iPhone")
+                    info["ProductType"] = vals.get("ProductType", "unknown")
+                    info["ProductVersion"] = vals.get("ProductVersion", "unknown")
+                    info["UniqueDeviceID"] = vals.get("UniqueDeviceID", serial)
+            except Exception as e:
+                print(f"Warning: {e}", file=sys.stderr, flush=True)
+            result.append(info)
+        return result
+
+    print(json.dumps(asyncio.run(_list())), flush=True)
 
 
 # ── Mode: tunneld ───────────────────────────────────────────────
