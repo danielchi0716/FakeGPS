@@ -172,7 +172,7 @@ struct RouteView: View {
                     .controlSize(.large)
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
-                    .disabled(deviceManager.device == nil)
+                    .disabled(deviceManager.selectedDeviceIDs.isEmpty)
                 }
             }
         }

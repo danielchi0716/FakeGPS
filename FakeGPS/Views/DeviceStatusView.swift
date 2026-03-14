@@ -10,6 +10,11 @@ struct DeviceStatusView: View {
                 Label("裝置", systemImage: "iphone")
                     .font(.headline)
                 Spacer()
+                if deviceManager.devices.count > 1 {
+                    Text("\(deviceManager.selectedDeviceIDs.count)/\(deviceManager.devices.count) 台已選")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Button {
                     Task { await deviceManager.detectDevice() }
                 } label: {
@@ -28,36 +33,76 @@ struct DeviceStatusView: View {
                     Text("偵測中...")
                         .foregroundStyle(.secondary)
                 }
-            } else if let device = deviceManager.device {
-                // Device info
+            } else if deviceManager.devices.isEmpty {
                 GroupBox {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Image(systemName: "iphone.gen3")
-                                .foregroundStyle(.blue)
-                            Text(device.name)
-                                .fontWeight(.medium)
-                            Spacer()
-                            Text("iOS \(device.osVersion)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        HStack {
-                            Text(device.productType)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(String(device.id.prefix(16)) + "...")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .monospaced()
-                        }
+                    HStack {
+                        Image(systemName: "iphone.slash")
+                            .foregroundStyle(.red)
+                        Text("未偵測到裝置")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
+            } else {
+                // Select all / deselect all (only for 2+ devices)
+                if deviceManager.devices.count > 1 {
+                    HStack(spacing: 8) {
+                        Button("全選") { deviceManager.selectAllDevices() }
+                            .font(.caption)
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .disabled(deviceManager.selectedDeviceIDs.count == deviceManager.devices.count)
+                        Button("取消全選") { deviceManager.deselectAllDevices() }
+                            .font(.caption)
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .disabled(deviceManager.selectedDeviceIDs.isEmpty)
                     }
                 }
 
-                // Tunnel control for iOS 17+
-                if device.isiOS17OrLater {
+                // Device list
+                ForEach(deviceManager.devices) { device in
+                    let isSelected = deviceManager.selectedDeviceIDs.contains(device.id)
+
+                    GroupBox {
+                        HStack(spacing: 8) {
+                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(isSelected ? .blue : .secondary)
+                                .font(.body)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Image(systemName: "iphone.gen3")
+                                        .foregroundStyle(isSelected ? .blue : .secondary)
+                                        .font(.caption)
+                                    Text(device.name)
+                                        .fontWeight(isSelected ? .semibold : .medium)
+                                        .font(.callout)
+                                    Spacer()
+                                    Text("iOS \(device.osVersion)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Text(device.productType)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 1.5)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        deviceManager.toggleDevice(device)
+                    }
+                }
+
+                // Tunnel control (shared across all devices)
+                if deviceManager.anySelectedNeedsTunnel {
                     GroupBox {
                         HStack {
                             Circle()
@@ -80,17 +125,6 @@ struct DeviceStatusView: View {
                                 .controlSize(.mini)
                             }
                         }
-                    }
-                }
-            } else {
-                GroupBox {
-                    HStack {
-                        Image(systemName: "iphone.slash")
-                            .foregroundStyle(.red)
-                        Text("未偵測到裝置")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
                     }
                 }
             }

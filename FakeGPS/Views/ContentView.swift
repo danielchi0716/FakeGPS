@@ -153,7 +153,7 @@ struct ContentView: View {
             }
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
-            .disabled(deviceManager.device == nil)
+            .disabled(deviceManager.selectedDeviceIDs.isEmpty)
 
             Button {
                 Task { await deviceManager.clearLocation() }
@@ -215,14 +215,14 @@ struct ContentView: View {
 
     /// Tunnel 是否就緒（需要 tunnel 才能模擬定位）
     private var isTunnelReady: Bool {
-        guard deviceManager.device != nil else { return false }
+        guard !deviceManager.selectedDeviceIDs.isEmpty else { return false }
         return deviceManager.tunnelRunning
     }
 
     private var statusColor: Color {
         if routeSimulator.isRunning { return .blue }
         if deviceManager.isSimulating { return .green }
-        if deviceManager.device != nil { return .orange }
+        if !deviceManager.selectedDeviceIDs.isEmpty { return .orange }
         return .red
     }
 }

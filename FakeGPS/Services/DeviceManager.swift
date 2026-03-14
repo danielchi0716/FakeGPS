@@ -12,7 +12,8 @@ final class LockedValue<T>: @unchecked Sendable {
 
 @MainActor
 class DeviceManager: ObservableObject {
-    @Published var device: DeviceInfo?
+    @Published var devices: [DeviceInfo] = []
+    @Published var selectedDeviceIDs: Set<String> = []
     @Published var isDetecting = false
     @Published var isSimulating = false
     @Published var simulatedLocation: SimulatedLocation?
@@ -20,10 +21,25 @@ class DeviceManager: ObservableObject {
     @Published var statusMessage = "未連接裝置"
     @Published var errorMessage: String?
 
+    /// The currently selected devices.
+    var selectedDevices: [DeviceInfo] {
+        devices.filter { selectedDeviceIDs.contains($0.id) }
+    }
+
+    /// Whether any device requires iOS 17+ tunnel.
+    var anySelectedNeedsTunnel: Bool {
+        selectedDevices.contains { $0.isiOS17OrLater }
+    }
+
     private var tunnelProcess: Process?
-    private var streamerProcess: Process?
-    private var streamerStdin: Pipe?
-    private var streamerReady = false
+
+    /// Per-device streamer state, keyed by device UDID.
+    private struct StreamerState {
+        var process: Process
+        var stdin: Pipe
+        var ready: Bool
+    }
+    private var streamers: [String: StreamerState] = [:]
 
     /// Path to bundled helper binary, or nil if not found (dev mode).
     private var helperPath: String?
@@ -41,7 +57,7 @@ class DeviceManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.killStreamer()
+            self?.killAllStreamers()
             self?.stopTunnelSync()
         }
     }
@@ -149,42 +165,56 @@ class DeviceManager: ObservableObject {
             if result.exitCode != 0 {
                 statusMessage = "偵測裝置失敗"
                 errorMessage = result.error.isEmpty ? "指令執行失敗 (exit code: \(result.exitCode))" : result.error
-                device = nil
+                devices = []
+                selectedDeviceIDs = []
                 return
             }
 
             guard let data = result.output.data(using: .utf8) else {
                 statusMessage = "無法解析裝置資料"
-                device = nil
+                devices = []
+                selectedDeviceIDs = []
                 return
             }
 
             let devices = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] ?? []
 
-            if let first = devices.first {
-                let udid = first["UniqueDeviceID"] as? String
-                    ?? first["UDID"] as? String
-                    ?? first["SerialNumber"] as? String
+            let parsed: [DeviceInfo] = devices.compactMap { dict in
+                let udid = dict["UniqueDeviceID"] as? String
+                    ?? dict["UDID"] as? String
+                    ?? dict["SerialNumber"] as? String
                     ?? "unknown"
-                let name = first["DeviceName"] as? String ?? "iPhone"
-                let productType = first["ProductType"] as? String ?? "unknown"
-                let osVersion = first["ProductVersion"] as? String ?? "unknown"
+                let name = dict["DeviceName"] as? String ?? "iPhone"
+                let productType = dict["ProductType"] as? String ?? "unknown"
+                let osVersion = dict["ProductVersion"] as? String ?? "unknown"
+                return DeviceInfo(id: udid, name: name, productType: productType, osVersion: osVersion)
+            }
 
-                device = DeviceInfo(
-                    id: udid,
-                    name: name,
-                    productType: productType,
-                    osVersion: osVersion
-                )
-                statusMessage = "已連接: \(name) (iOS \(osVersion))"
-            } else {
-                device = nil
+            self.devices = parsed
+
+            if parsed.isEmpty {
+                selectedDeviceIDs = []
                 statusMessage = "未偵測到裝置，請確認 iPhone 已透過 USB 連接"
+            } else {
+                let connectedIDs = Set(parsed.map(\.id))
+                // Remove selections for disconnected devices
+                selectedDeviceIDs = selectedDeviceIDs.intersection(connectedIDs)
+                // Auto-select all if nothing was selected
+                if selectedDeviceIDs.isEmpty {
+                    selectedDeviceIDs = connectedIDs
+                }
+                let count = parsed.count
+                if count == 1, let dev = parsed.first {
+                    statusMessage = "已連接: \(dev.name) (iOS \(dev.osVersion))"
+                } else {
+                    statusMessage = "已連接 \(count) 台裝置"
+                }
             }
         } catch {
             statusMessage = "偵測裝置時發生錯誤"
             errorMessage = error.localizedDescription
-            device = nil
+            devices = []
+            selectedDeviceIDs = []
         }
     }
 
@@ -303,21 +333,38 @@ class DeviceManager: ObservableObject {
         tunnelRunning = false
     }
 
+    // MARK: - Device Selection
+
+    func toggleDevice(_ device: DeviceInfo) {
+        if selectedDeviceIDs.contains(device.id) {
+            selectedDeviceIDs.remove(device.id)
+        } else {
+            selectedDeviceIDs.insert(device.id)
+        }
+    }
+
+    func selectAllDevices() {
+        selectedDeviceIDs = Set(devices.map(\.id))
+    }
+
+    func deselectAllDevices() {
+        selectedDeviceIDs.removeAll()
+    }
+
     // MARK: - Location Streamer
 
-    /// Start the location streamer process if not already running.
-    private func ensureStreamer() async -> Bool {
-        if let process = streamerProcess, process.isRunning, streamerReady {
+    /// Start the location streamer process for a specific device if not already running.
+    private func ensureStreamer(for deviceId: String) async -> Bool {
+        if let state = streamers[deviceId], state.process.isRunning, state.ready {
             return true
         }
 
-        // Kill any old streamer
-        killStreamer()
-
-        guard let dev = device else {
-            errorMessage = "請先偵測裝置"
+        guard let dev = devices.first(where: { $0.id == deviceId }) else {
             return false
         }
+
+        // Kill old streamer for this device if any
+        killStreamer(for: deviceId)
 
         let process = Process()
         let stdinPipe = Pipe()
@@ -325,11 +372,9 @@ class DeviceManager: ObservableObject {
         let stderrPipe = Pipe()
 
         if let helper = helperPath {
-            // Bundled binary mode
             process.executableURL = URL(fileURLWithPath: helper)
             process.arguments = ["streamer", "--udid", dev.id]
         } else {
-            // Dev fallback: python + script
             guard let python = pythonPath else {
                 errorMessage = "找不到 Python"
                 return false
@@ -368,13 +413,11 @@ class DeviceManager: ObservableObject {
         do {
             try process.run()
         } catch {
-            errorMessage = "啟動 streamer 失敗: \(error.localizedDescription)"
+            errorMessage = "啟動 streamer 失敗 (\(dev.name)): \(error.localizedDescription)"
             return false
         }
 
-        streamerProcess = process
-        streamerStdin = stdinPipe
-        streamerReady = false
+        streamers[deviceId] = StreamerState(process: process, stdin: stdinPipe, ready: false)
 
         // Wait for READY signal
         let readyReceived = LockedValue(false)
@@ -402,45 +445,52 @@ class DeviceManager: ObservableObject {
         }
 
         if readyReceived.value {
-            streamerReady = true
-            print("[FakeGPS] Streamer ready")
+            streamers[deviceId]?.ready = true
+            print("[FakeGPS] Streamer ready for device \(deviceId)")
 
             // Monitor for unexpected exit
             Task.detached { [weak self] in
                 process.waitUntilExit()
                 let err = errCollector.value
                 await MainActor.run {
-                    if self?.streamerProcess === process {
-                        self?.streamerProcess = nil
-                        self?.streamerReady = false
-                        self?.isSimulating = false
-                        self?.simulatedLocation = nil
-                        if !err.isEmpty {
-                            self?.errorMessage = "Streamer 已停止: \(String(err.suffix(300)))"
+                    if self?.streamers[deviceId]?.process === process {
+                        self?.streamers.removeValue(forKey: deviceId)
+                        // Update UI if this device was selected
+                        if self?.selectedDeviceIDs.contains(deviceId) == true {
+                            // Check if any selected device still has an active streamer
+                            let anyActive = self?.selectedDeviceIDs.contains(where: { id in
+                                self?.streamers[id]?.ready == true
+                            }) ?? false
+                            if !anyActive {
+                                self?.isSimulating = false
+                                self?.simulatedLocation = nil
+                                self?.statusMessage = "模擬位置已結束"
+                            }
+                            if !err.isEmpty {
+                                self?.errorMessage = "Streamer 已停止 (\(dev.name)): \(String(err.suffix(300)))"
+                            }
                         }
-                        self?.statusMessage = "模擬位置已結束"
                     }
                 }
             }
             return true
         } else {
             let err = errCollector.value
-            errorMessage = "Streamer 啟動失敗: \(String(err.suffix(300)))"
-            killStreamer()
+            errorMessage = "Streamer 啟動失敗 (\(dev.name)): \(String(err.suffix(300)))"
+            killStreamer(for: deviceId)
             return false
         }
     }
 
-    /// Send a command to the streamer and wait for response.
-    private func sendToStreamer(_ command: String) async -> Bool {
-        guard let stdinPipe = streamerStdin,
-              let process = streamerProcess, process.isRunning else {
+    /// Send a command to a specific device's streamer.
+    private func sendToStreamer(for deviceId: String, command: String) async -> Bool {
+        guard let state = streamers[deviceId], state.process.isRunning, state.ready else {
             return false
         }
 
         let data = (command + "\n").data(using: .utf8)!
         do {
-            stdinPipe.fileHandleForWriting.write(data)
+            state.stdin.fileHandleForWriting.write(data)
             try await Task.sleep(for: .milliseconds(50))
             return true
         } catch {
@@ -455,52 +505,81 @@ class DeviceManager: ObservableObject {
             errorMessage = "找不到必要工具"
             return
         }
-        guard device != nil else {
-            errorMessage = "請先偵測裝置"
+        guard !selectedDeviceIDs.isEmpty else {
+            errorMessage = "請先選擇裝置"
             return
         }
 
         errorMessage = nil
 
-        if !streamerReady {
-            statusMessage = "正在連線..."
-            let ok = await ensureStreamer()
-            if !ok { return }
+        // Ensure all selected devices have a streamer running
+        var failedDevices: [String] = []
+        for deviceId in selectedDeviceIDs {
+            if streamers[deviceId]?.ready != true {
+                statusMessage = "正在連線..."
+                let ok = await ensureStreamer(for: deviceId)
+                if !ok {
+                    let name = devices.first { $0.id == deviceId }?.name ?? deviceId
+                    failedDevices.append(name)
+                }
+            }
         }
 
         let command = String(format: "%.6f,%.6f", latitude, longitude)
-        let success = await sendToStreamer(command)
+        var successCount = 0
 
-        if success {
+        for deviceId in selectedDeviceIDs {
+            if await sendToStreamer(for: deviceId, command: command) {
+                successCount += 1
+            }
+        }
+
+        if successCount > 0 {
             let location = SimulatedLocation(latitude: latitude, longitude: longitude)
             simulatedLocation = location
             isSimulating = true
-            statusMessage = "模擬中: \(location.displayString)"
+            if selectedDeviceIDs.count > 1 {
+                statusMessage = "模擬中 (\(successCount)/\(selectedDeviceIDs.count) 台): \(location.displayString)"
+            } else {
+                statusMessage = "模擬中: \(location.displayString)"
+            }
         } else {
             errorMessage = "傳送位置失敗"
             statusMessage = "設定位置失敗"
         }
+
+        if !failedDevices.isEmpty {
+            errorMessage = "部分裝置連線失敗: \(failedDevices.joined(separator: ", "))"
+        }
     }
 
     func clearLocation() async {
-        if streamerReady {
-            let _ = await sendToStreamer("CLEAR")
+        for deviceId in selectedDeviceIDs {
+            if streamers[deviceId]?.ready == true {
+                let _ = await sendToStreamer(for: deviceId, command: "CLEAR")
+            }
+            killStreamer(for: deviceId)
         }
-        killStreamer()
         simulatedLocation = nil
         isSimulating = false
         statusMessage = "已恢復真實定位"
     }
 
-    private func killStreamer() {
-        if let process = streamerProcess, process.isRunning {
-            kill(process.processIdentifier, SIGINT)
+    private func killStreamer(for deviceId: String) {
+        guard let state = streamers[deviceId] else { return }
+        if state.process.isRunning {
+            kill(state.process.processIdentifier, SIGINT)
+            let proc = state.process
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-                if process.isRunning { process.terminate() }
+                if proc.isRunning { proc.terminate() }
             }
         }
-        streamerProcess = nil
-        streamerStdin = nil
-        streamerReady = false
+        streamers.removeValue(forKey: deviceId)
+    }
+
+    private func killAllStreamers() {
+        for id in streamers.keys {
+            killStreamer(for: id)
+        }
     }
 }
