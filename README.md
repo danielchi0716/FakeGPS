@@ -1,7 +1,7 @@
 # FakeGPS
 
 <p align="center">
-  <img src="FakeGPS/Assets.xcassets/AppIcon.appiconset/256.png" width="128" alt="FakeGPS Icon">
+  <img src="FakeGPS/Assets.xcassets/AppIcon.appiconset/icon-mac-256x256.png" width="128" alt="FakeGPS Icon">
 </p>
 
 <p align="center">
