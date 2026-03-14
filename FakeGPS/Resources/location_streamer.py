@@ -104,22 +104,35 @@ async def mode_streamer(udid):
 
 def mode_list():
     import asyncio
-    from pymobiledevice3.usbmux import list_devices
     import inspect
+    from pymobiledevice3.usbmux import list_devices
+    from pymobiledevice3.lockdown import create_using_usbmux
 
     devices = list_devices()
-    # list_devices may be async in newer versions
     if inspect.iscoroutine(devices):
         devices = asyncio.run(devices)
 
     result = []
     for d in devices:
-        result.append({
-            "UniqueDeviceID": getattr(d, "serial", "unknown"),
-            "DeviceName": getattr(d, "name", "iPhone"),
-            "ProductType": getattr(d, "product_type", "unknown"),
-            "ProductVersion": getattr(d, "os_version", "unknown"),
-        })
+        serial = getattr(d, "serial", "unknown")
+        info = {
+            "UniqueDeviceID": serial,
+            "DeviceName": "iPhone",
+            "ProductType": "unknown",
+            "ProductVersion": "unknown",
+        }
+        try:
+            lockdown = create_using_usbmux(serial=serial)
+            all_values = lockdown.all_values
+            if inspect.iscoroutine(all_values):
+                all_values = asyncio.run(all_values)
+            info["DeviceName"] = all_values.get("DeviceName", "iPhone")
+            info["ProductType"] = all_values.get("ProductType", "unknown")
+            info["ProductVersion"] = all_values.get("ProductVersion", "unknown")
+            info["UniqueDeviceID"] = all_values.get("UniqueDeviceID", serial)
+        except Exception:
+            pass
+        result.append(info)
     print(json.dumps(result), flush=True)
 
 
