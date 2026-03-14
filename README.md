@@ -92,6 +92,12 @@ xattr -d com.apple.quarantine ~/Downloads/FakeGPS.app
 **Q: 打開 app 顯示「無法驗證開發者」？**
 - 執行 `xattr -d com.apple.quarantine /path/to/FakeGPS.app`
 
+## 支持作者
+
+如果覺得這個工具有幫助，歡迎請我喝杯咖啡：
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Me-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/danielchi0716)
+
 ## License
 
 MIT License
