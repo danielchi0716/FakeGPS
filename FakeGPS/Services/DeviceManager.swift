@@ -65,9 +65,10 @@ class DeviceManager: ObservableObject {
     // MARK: - Find Helper / Fallback
 
     func findHelper() async {
-        // 1. Look for bundled helper binary
+        // 1. Look for bundled helper binary (verify it can run on this CPU)
         if let bundled = Bundle.main.path(forResource: "location_streamer", ofType: nil),
-           FileManager.default.isExecutableFile(atPath: bundled) {
+           FileManager.default.isExecutableFile(atPath: bundled),
+           isBinaryCompatible(atPath: bundled) {
             helperPath = bundled
             statusMessage = "就緒"
             return
@@ -75,6 +76,30 @@ class DeviceManager: ObservableObject {
 
         // 2. Fallback: search for system pymobiledevice3 + python (dev mode)
         await findSystemPymobiledevice3()
+    }
+
+    /// Check whether a Mach-O binary supports the current CPU architecture.
+    private func isBinaryCompatible(atPath path: String) -> Bool {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe),
+              data.count >= 8 else { return false }
+
+        let magic = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+
+        // Universal binary (FAT) — assume compatible
+        if magic == 0xCAFEBABE || magic == 0xBEBAFECA { return true }
+
+        // Thin Mach-O — check CPU type matches this process
+        if magic == 0xFEEDFACF || magic == 0xCFFAEDFE {
+            let cpuType = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self) }
+            var currentCPU = cpu_type_t()
+            var size = MemoryLayout<cpu_type_t>.size
+            sysctlbyname("hw.cputype", &currentCPU, &size, nil, 0)
+            let binaryCPU = (magic == 0xCFFAEDFE) ? cpuType.byteSwapped : cpuType
+            return binaryCPU == UInt32(bitPattern: Int32(currentCPU))
+        }
+
+        // Not a Mach-O binary (e.g. script) — assume compatible
+        return true
     }
 
     private func findSystemPymobiledevice3() async {
@@ -157,7 +182,19 @@ class DeviceManager: ObservableObject {
         do {
             let result: ShellResult
             if let helper = helperPath {
-                result = try await ShellExecutor.run(helper, arguments: ["list"])
+                do {
+                    result = try await ShellExecutor.run(helper, arguments: ["list"])
+                } catch {
+                    // Bundled helper failed (e.g. wrong CPU arch) — fall back to system tool
+                    print("[FakeGPS] Bundled helper failed: \(error.localizedDescription), falling back")
+                    helperPath = nil
+                    await findSystemPymobiledevice3()
+                    if let pmd3 = pymobiledevice3Path {
+                        result = try await ShellExecutor.run(pmd3, arguments: ["usbmux", "list"])
+                    } else {
+                        throw error
+                    }
+                }
             } else {
                 result = try await ShellExecutor.run(pymobiledevice3Path!, arguments: ["usbmux", "list"])
             }
