@@ -22,15 +22,30 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build Python helper with PyInstaller
+      - name: Build Python helper with PyInstaller (universal2)
         run: |
           pip install pymobiledevice3 pyinstaller
+          # Build arm64 binary (native on GitHub Actions macos runner)
           pyinstaller --onefile \
-            --name location_streamer \
+            --name location_streamer_arm64 \
             --collect-all pymobiledevice3 \
             --collect-all readchar \
             --copy-metadata readchar \
+            --target-architecture arm64 \
             FakeGPS/Resources/location_streamer.py
+          # Build x86_64 binary
+          pyinstaller --onefile \
+            --name location_streamer_x86_64 \
+            --collect-all pymobiledevice3 \
+            --collect-all readchar \
+            --copy-metadata readchar \
+            --target-architecture x86_64 \
+            FakeGPS/Resources/location_streamer.py
+          # Merge into universal binary
+          lipo -create \
+            dist/location_streamer_arm64 \
+            dist/location_streamer_x86_64 \
+            -output dist/location_streamer
           file dist/location_streamer
 
       - name: Select Xcode
