@@ -9,7 +9,43 @@ permissions:
   contents: write
 
 jobs:
+  build-helper:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build Python helper with PyInstaller (${{ matrix.arch }})
+        run: |
+          pip install pymobiledevice3 pyinstaller
+          pyinstaller --onefile \
+            --name location_streamer \
+            --collect-all pymobiledevice3 \
+            --collect-all readchar \
+            --copy-metadata readchar \
+            FakeGPS/Resources/location_streamer.py
+          file dist/location_streamer
+
+      - name: Upload helper binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: helper-${{ matrix.arch }}
+          path: dist/location_streamer
+
   build:
+    needs: build-helper
     runs-on: macos-15
 
     steps:
@@ -17,36 +53,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Download helper binaries
+        uses: actions/download-artifact@v4
         with:
-          python-version: '3.12'
+          path: helpers
 
-      - name: Build Python helper with PyInstaller (universal2)
+      - name: Create universal helper binary
         run: |
-          pip install pymobiledevice3 pyinstaller
-          # Build arm64 binary (native on GitHub Actions macos runner)
-          pyinstaller --onefile \
-            --name location_streamer_arm64 \
-            --collect-all pymobiledevice3 \
-            --collect-all readchar \
-            --copy-metadata readchar \
-            --target-architecture arm64 \
-            FakeGPS/Resources/location_streamer.py
-          # Build x86_64 binary
-          pyinstaller --onefile \
-            --name location_streamer_x86_64 \
-            --collect-all pymobiledevice3 \
-            --collect-all readchar \
-            --copy-metadata readchar \
-            --target-architecture x86_64 \
-            FakeGPS/Resources/location_streamer.py
-          # Merge into universal binary
           lipo -create \
-            dist/location_streamer_arm64 \
-            dist/location_streamer_x86_64 \
-            -output dist/location_streamer
-          file dist/location_streamer
+            helpers/helper-arm64/location_streamer \
+            helpers/helper-x86_64/location_streamer \
+            -output location_streamer
+          file location_streamer
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
@@ -67,7 +85,7 @@ jobs:
       - name: Embed Python helper in app bundle
         run: |
           APP=build/Build/Products/Release/FakeGPS.app
-          cp dist/location_streamer "$APP/Contents/Resources/"
+          cp location_streamer "$APP/Contents/Resources/"
           chmod +x "$APP/Contents/Resources/location_streamer"
 
       - name: Verify binaries
