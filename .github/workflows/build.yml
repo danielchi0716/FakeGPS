@@ -15,8 +15,10 @@ jobs:
         include:
           - runner: macos-15
             arch: arm64
-          - runner: macos-13
+            prefix: ""
+          - runner: macos-15
             arch: x86_64
+            prefix: "arch -x86_64"
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -29,8 +31,8 @@ jobs:
 
       - name: Build Python helper with PyInstaller (${{ matrix.arch }})
         run: |
-          pip install pymobiledevice3 pyinstaller
-          pyinstaller --onefile \
+          ${{ matrix.prefix }} pip install pymobiledevice3 pyinstaller
+          ${{ matrix.prefix }} pyinstaller --onefile \
             --name location_streamer \
             --collect-all pymobiledevice3 \
             --collect-all readchar \
