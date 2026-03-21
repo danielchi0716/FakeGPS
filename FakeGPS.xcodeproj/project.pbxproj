@@ -26,6 +26,7 @@
 		AA000017 /* SavedLocationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000018; };
 		AA000018 /* SavedRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000019; };
 		AA000019 /* SavedRoutesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000020; };
+		AA000020 /* USBWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000021; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +50,7 @@
 		AB000018 /* SavedLocationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLocationsView.swift; sourceTree = "<group>"; };
 		AB000019 /* SavedRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoute.swift; sourceTree = "<group>"; };
 		AB000020 /* SavedRoutesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesView.swift; sourceTree = "<group>"; };
+		AB000021 /* USBWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBWatcher.swift; sourceTree = "<group>"; };
 		AC000001 /* FakeGPS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FakeGPS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -102,6 +104,7 @@
 			children = (
 				AB000007 /* DeviceManager.swift */,
 				AB000011 /* RouteSimulator.swift */,
+				AB000021 /* USBWatcher.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -234,6 +237,7 @@
 				AA000017 /* SavedLocationsView.swift in Sources */,
 				AA000018 /* SavedRoute.swift in Sources */,
 				AA000019 /* SavedRoutesView.swift in Sources */,
+				AA000020 /* USBWatcher.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

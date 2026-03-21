@@ -80,6 +80,7 @@ struct DeviceStatusView: View {
                                         .fontWeight(isSelected ? .semibold : .medium)
                                         .font(.callout)
                                     Spacer()
+                                    connectionIcon(for: device)
                                     Text("iOS \(device.osVersion)")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -100,34 +101,47 @@ struct DeviceStatusView: View {
                         deviceManager.toggleDevice(device)
                     }
                 }
+            }
 
-                // Tunnel control (shared across all devices)
-                if deviceManager.anySelectedNeedsTunnel {
-                    GroupBox {
-                        HStack {
-                            Circle()
-                                .fill(deviceManager.tunnelRunning ? .green : .orange)
-                                .frame(width: 8, height: 8)
-                            Text(deviceManager.tunnelRunning ? "Tunnel 已連線" : "Tunnel 未連線")
-                                .font(.caption)
-                            Spacer()
-                            if deviceManager.tunnelRunning {
-                                Button("停止") {
-                                    Task { await deviceManager.stopTunnel() }
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.mini)
-                            } else {
-                                Button("啟動") {
-                                    Task { await deviceManager.startTunnel() }
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.mini)
-                            }
+            // Tunnel control — always visible (needed for wireless device discovery)
+            GroupBox {
+                HStack {
+                    Circle()
+                        .fill(deviceManager.tunnelRunning ? .green : .orange)
+                        .frame(width: 8, height: 8)
+                    Text(deviceManager.tunnelRunning ? "Tunnel 已連線" : "Tunnel 未連線")
+                        .font(.caption)
+                    Spacer()
+                    if deviceManager.tunnelRunning {
+                        Button("停止") {
+                            Task { await deviceManager.stopTunnel() }
                         }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                    } else {
+                        Button("啟動") {
+                            Task { await deviceManager.startTunnel() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.mini)
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func connectionIcon(for device: DeviceInfo) -> some View {
+        if device.connectionType == .network {
+            Image(systemName: "wifi")
+                .foregroundStyle(.green)
+                .font(.caption)
+                .help("無線連線")
+        } else {
+            Image(systemName: "cable.connector")
+                .foregroundStyle(.secondary)
+                .font(.caption)
+                .help("USB 連線")
         }
     }
 }

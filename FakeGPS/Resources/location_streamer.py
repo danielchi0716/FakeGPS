@@ -4,7 +4,7 @@ FakeGPS Python helper — multi-mode tool for iOS device communication.
 
 Modes:
   streamer  — Persistent location simulation via tunneld (stdin/stdout protocol)
-  list      — List connected USB devices (JSON output)
+  list      — List connected devices via USB and network (JSON output)
   tunneld   — Start the tunnel daemon (long-running, requires sudo)
 
 Usage:
@@ -16,18 +16,57 @@ Usage:
 import sys
 import signal
 import asyncio
+import inspect
 import json
+
+
+# ── Helpers ────────────────────────────────────────────────────
+
+async def _maybe_await(val):
+    """Await if coroutine, otherwise return as-is."""
+    if inspect.iscoroutine(val):
+        return await val
+    return val
+
+
+async def _get_tunneld_devices():
+    """Get tunneld devices, compatible with both sync and async API versions."""
+    try:
+        from pymobiledevice3.tunneld.api import async_get_tunneld_devices
+        return await async_get_tunneld_devices()
+    except ImportError:
+        from pymobiledevice3.tunneld.api import get_tunneld_devices
+        result = get_tunneld_devices()
+        return await _maybe_await(result)
+
+
+async def _get_rsd_device_info(rsd):
+    """Extract device info dict from a RemoteServiceDiscoveryService instance."""
+    udid = str(rsd.udid)
+    info = {
+        "UniqueDeviceID": udid,
+        "DeviceName": "iPhone",
+        "ProductType": "unknown",
+        "ProductVersion": "unknown",
+        "ConnectionType": "Network",
+    }
+    try:
+        info["DeviceName"] = (await _maybe_await(rsd.get_value(None, "DeviceName"))) or "iPhone"
+        info["ProductType"] = (await _maybe_await(rsd.get_value(None, "ProductType"))) or "unknown"
+        info["ProductVersion"] = (await _maybe_await(rsd.get_value(None, "ProductVersion"))) or "unknown"
+    except Exception as e:
+        print(f"Warning (network device {udid}): {e}", file=sys.stderr, flush=True)
+    return info
 
 
 # ── Mode: streamer ──────────────────────────────────────────────
 
 async def mode_streamer(udid):
-    from pymobiledevice3.tunneld.api import get_tunneld_devices
     from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
     from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
     from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
 
-    devices = await get_tunneld_devices()
+    devices = await _get_tunneld_devices()
     rsd = None
     for d in devices:
         if isinstance(d, RemoteServiceDiscoveryService):
@@ -103,18 +142,16 @@ async def mode_streamer(udid):
 # ── Mode: list ──────────────────────────────────────────────────
 
 def mode_list():
-    """List connected devices with full info via lockdown."""
-    import asyncio
-    import inspect
+    """List connected devices via USB and network (JSON output)."""
     from pymobiledevice3.usbmux import list_devices
     from pymobiledevice3.lockdown import create_using_usbmux
 
     async def _list():
-        devs = list_devices()
-        if inspect.iscoroutine(devs):
-            devs = await devs
-
+        seen_udids = set()
         result = []
+
+        # 1. USB devices
+        devs = await _maybe_await(list_devices())
         for d in devs:
             serial = getattr(d, "serial", "unknown")
             info = {
@@ -122,10 +159,13 @@ def mode_list():
                 "DeviceName": "iPhone",
                 "ProductType": "unknown",
                 "ProductVersion": "unknown",
+                "ConnectionType": "USB",
             }
             try:
-                lockdown = await create_using_usbmux(serial=serial)
+                lockdown = await _maybe_await(create_using_usbmux(serial=serial))
                 vals = lockdown.all_values
+                if inspect.iscoroutine(vals):
+                    vals = await vals
                 if isinstance(vals, dict):
                     info["DeviceName"] = vals.get("DeviceName", "iPhone")
                     info["ProductType"] = vals.get("ProductType", "unknown")
@@ -133,7 +173,40 @@ def mode_list():
                     info["UniqueDeviceID"] = vals.get("UniqueDeviceID", serial)
             except Exception as e:
                 print(f"Warning: {e}", file=sys.stderr, flush=True)
+            seen_udids.add(info["UniqueDeviceID"])
             result.append(info)
+
+        # 2. Network devices via tunneld (requires tunneld to be running)
+        try:
+            from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
+            tunnel_devs = await _get_tunneld_devices()
+            for d in tunnel_devs:
+                if not isinstance(d, RemoteServiceDiscoveryService):
+                    continue
+                udid = str(d.udid)
+                if udid in seen_udids:
+                    continue
+                info = await _get_rsd_device_info(d)
+                seen_udids.add(udid)
+                result.append(info)
+        except Exception as e:
+            print(f"Warning: tunneld query failed: {e}", file=sys.stderr, flush=True)
+
+        # 3. Bonjour browse fallback (discovers network devices without tunneld)
+        if not any(d["ConnectionType"] == "Network" for d in result):
+            try:
+                from pymobiledevice3.remote.remote_service_discovery import browse_remoted
+                browse_devs = await _maybe_await(browse_remoted(timeout=3))
+                for d in browse_devs:
+                    udid = str(getattr(d, "udid", "unknown"))
+                    if udid in seen_udids:
+                        continue
+                    info = await _get_rsd_device_info(d)
+                    seen_udids.add(udid)
+                    result.append(info)
+            except Exception as e:
+                print(f"Warning: bonjour browse failed: {e}", file=sys.stderr, flush=True)
+
         return result
 
     print(json.dumps(asyncio.run(_list())), flush=True)

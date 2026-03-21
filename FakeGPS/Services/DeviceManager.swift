@@ -41,6 +41,9 @@ class DeviceManager: ObservableObject {
     }
     private var streamers: [String: StreamerState] = [:]
 
+    private var usbWatcher: USBWatcher?
+    private var debounceTask: Task<Void, Never>?
+
     /// Path to bundled helper binary, or nil if not found (dev mode).
     private var helperPath: String?
     /// Fallback: system pymobiledevice3 CLI path (for dev builds without bundled binary).
@@ -51,14 +54,35 @@ class DeviceManager: ObservableObject {
     init() {
         Task { await findHelper() }
 
+        // Monitor USB device attach/detach events
+        usbWatcher = USBWatcher { [weak self] in
+            Task { @MainActor in
+                self?.scheduleDetection()
+            }
+        }
+
         // Terminate tunnel when app quits
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            self?.usbWatcher?.stop()
             self?.killAllStreamers()
             self?.stopTunnelSync()
+        }
+    }
+
+    /// Debounced device detection triggered by USB events.
+    private func scheduleDetection() {
+        debounceTask?.cancel()
+        debounceTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(500))
+            } catch {
+                return // cancelled
+            }
+            await self?.detectDevice()
         }
     }
 
@@ -74,7 +98,7 @@ class DeviceManager: ObservableObject {
             return
         }
 
-        // 2. Fallback: search for system pymobiledevice3 + python (dev mode)
+        // 2. Fallback: search for system pymobiledevice3 CLI + python
         await findSystemPymobiledevice3()
     }
 
@@ -126,14 +150,7 @@ class DeviceManager: ObservableObject {
                         }
                     }
                 }
-                if pythonPath == nil {
-                    for p in ["/usr/local/bin/python3.13", "/usr/local/bin/python3.12", "/usr/local/bin/python3", "/opt/homebrew/bin/python3"] {
-                        if FileManager.default.isExecutableFile(atPath: p) {
-                            pythonPath = p
-                            break
-                        }
-                    }
-                }
+                findSystemPython()
                 statusMessage = "已找到 pymobiledevice3"
                 return
             }
@@ -158,13 +175,55 @@ class DeviceManager: ObservableObject {
             }
         } catch {}
 
+        // No pymobiledevice3 CLI — check if Python + module exists
+        findSystemPython()
+        if let python = pythonPath {
+            do {
+                let result = try await ShellExecutor.run(python, arguments: ["-c", "import pymobiledevice3"])
+                if result.exitCode == 0 {
+                    statusMessage = "已找到 Python + pymobiledevice3"
+                    return
+                }
+            } catch {}
+        }
+
         statusMessage = "找不到 pymobiledevice3，請先安裝"
         errorMessage = "請執行 pip3 install pymobiledevice3"
     }
 
+    private func findSystemPython() {
+        if pythonPath != nil { return }
+        let candidates = [
+            "/usr/local/bin/python3.13", "/usr/local/bin/python3.12", "/usr/local/bin/python3.11",
+            "/usr/local/bin/python3", "/opt/homebrew/bin/python3", "/usr/bin/python3",
+        ]
+        for p in candidates {
+            if FileManager.default.isExecutableFile(atPath: p) {
+                pythonPath = p
+                return
+            }
+        }
+    }
+
     /// Whether the helper or system fallback is available.
     private var isToolReady: Bool {
-        helperPath != nil || pymobiledevice3Path != nil
+        helperPath != nil || pymobiledevice3Path != nil || pythonPath != nil
+    }
+
+    /// Resolve the path to the bundled `location_streamer.py` script.
+    private func findScript() -> String? {
+        var candidates: [String] = []
+        if let bundled = Bundle.main.path(forResource: "location_streamer", ofType: "py") {
+            candidates.append(bundled)
+        }
+        candidates.append(Bundle.main.bundlePath + "/Contents/Resources/location_streamer.py")
+        // Dev mode: source tree relative to the built .app
+        candidates.append(
+            Bundle.main.bundleURL
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("FakeGPS/Resources/location_streamer.py").path
+        )
+        return candidates.first(where: { FileManager.default.fileExists(atPath: $0) })
     }
 
     // MARK: - Detect Device
@@ -185,18 +244,14 @@ class DeviceManager: ObservableObject {
                 do {
                     result = try await ShellExecutor.run(helper, arguments: ["list"])
                 } catch {
-                    // Bundled helper failed (e.g. wrong CPU arch) — fall back to system tool
+                    // Bundled helper failed (e.g. wrong CPU arch) — fall back
                     print("[FakeGPS] Bundled helper failed: \(error.localizedDescription), falling back")
                     helperPath = nil
                     await findSystemPymobiledevice3()
-                    if let pmd3 = pymobiledevice3Path {
-                        result = try await ShellExecutor.run(pmd3, arguments: ["usbmux", "list"])
-                    } else {
-                        throw error
-                    }
+                    result = try await runListFallback()
                 }
             } else {
-                result = try await ShellExecutor.run(pymobiledevice3Path!, arguments: ["usbmux", "list"])
+                result = try await runListFallback()
             }
 
             if result.exitCode != 0 {
@@ -224,16 +279,22 @@ class DeviceManager: ObservableObject {
                 let name = dict["DeviceName"] as? String ?? "iPhone"
                 let productType = dict["ProductType"] as? String ?? "unknown"
                 let osVersion = dict["ProductVersion"] as? String ?? "unknown"
-                return DeviceInfo(id: udid, name: name, productType: productType, osVersion: osVersion)
+                let connType: ConnectionType = (dict["ConnectionType"] as? String) == "Network" ? .network : .usb
+                return DeviceInfo(id: udid, name: name, productType: productType, osVersion: osVersion, connectionType: connType)
+            }
+
+            // Kill streamers for disconnected devices before updating published state
+            let connectedIDs = Set(parsed.map(\.id))
+            for id in streamers.keys where !connectedIDs.contains(id) {
+                killStreamer(for: id)
             }
 
             self.devices = parsed
 
             if parsed.isEmpty {
                 selectedDeviceIDs = []
-                statusMessage = "未偵測到裝置，請確認 iPhone 已透過 USB 連接"
+                statusMessage = "未偵測到裝置，請確認 iPhone 已透過 USB 或 Wi-Fi 連接"
             } else {
-                let connectedIDs = Set(parsed.map(\.id))
                 // Remove selections for disconnected devices
                 selectedDeviceIDs = selectedDeviceIDs.intersection(connectedIDs)
                 // Auto-select all if nothing was selected
@@ -255,6 +316,19 @@ class DeviceManager: ObservableObject {
         }
     }
 
+    /// Run the list command using Python script or pymobiledevice3 CLI fallback.
+    private func runListFallback() async throws -> ShellResult {
+        // Prefer Python script (supports USB + network discovery)
+        if let python = pythonPath, let script = findScript() {
+            return try await ShellExecutor.run(python, arguments: [script, "list"])
+        }
+        // Fall back to pymobiledevice3 CLI (USB only)
+        if let pmd3 = pymobiledevice3Path {
+            return try await ShellExecutor.run(pmd3, arguments: ["usbmux", "list"])
+        }
+        throw NSError(domain: "FakeGPS", code: 1, userInfo: [NSLocalizedDescriptionKey: "找不到偵測工具"])
+    }
+
     // MARK: - Tunnel (iOS 17+)
 
     func startTunnel() async {
@@ -272,9 +346,15 @@ class DeviceManager: ObservableObject {
         if let helper = helperPath {
             command = helper
             arguments = ["tunneld"]
-        } else {
-            command = pymobiledevice3Path!
+        } else if let pmd3 = pymobiledevice3Path {
+            command = pmd3
             arguments = ["remote", "tunneld"]
+        } else if let python = pythonPath, let script = findScript() {
+            command = python
+            arguments = [script, "tunneld"]
+        } else {
+            errorMessage = "找不到 tunneld 工具"
+            return
         }
 
         do {
@@ -416,29 +496,10 @@ class DeviceManager: ObservableObject {
                 errorMessage = "找不到 Python"
                 return false
             }
-
-            let scriptPath = Bundle.main.path(forResource: "location_streamer", ofType: "py")
-                ?? (Bundle.main.bundlePath + "/Contents/Resources/location_streamer.py")
-
-            let possiblePaths = [
-                scriptPath,
-                Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-                    .appendingPathComponent("FakeGPS/Resources/location_streamer.py").path,
-            ]
-
-            var actualScript: String?
-            for p in possiblePaths {
-                if FileManager.default.fileExists(atPath: p) {
-                    actualScript = p
-                    break
-                }
-            }
-
-            guard let script = actualScript else {
+            guard let script = findScript() else {
                 errorMessage = "找不到 location_streamer.py"
                 return false
             }
-
             process.executableURL = URL(fileURLWithPath: python)
             process.arguments = [script, "streamer", "--udid", dev.id]
         }
