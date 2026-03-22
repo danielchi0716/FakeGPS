@@ -20,9 +20,6 @@ struct JoystickControlView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("移動控制")
-                .font(.headline)
-
             // Speed control
             VStack(alignment: .leading, spacing: 6) {
                 HStack {

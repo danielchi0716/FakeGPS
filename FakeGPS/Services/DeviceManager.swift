@@ -14,12 +14,14 @@ final class LockedValue<T>: @unchecked Sendable {
 class DeviceManager: ObservableObject {
     @Published var devices: [DeviceInfo] = []
     @Published var selectedDeviceIDs: Set<String> = []
+    @Published var devicesConfirmed = false
     @Published var isDetecting = false
     @Published var isSimulating = false
     @Published var simulatedLocation: SimulatedLocation?
     @Published var tunnelRunning = false
     @Published var statusMessage = "未連接裝置"
     @Published var errorMessage: String?
+    @Published var disconnectedDeviceNames: [String] = []
 
     /// The currently selected devices.
     var selectedDevices: [DeviceInfo] {
@@ -310,6 +312,20 @@ class DeviceManager: ObservableObject {
                 killStreamer(for: id)
             }
 
+            // Check if any confirmed/selected device disconnected while simulating
+            if devicesConfirmed {
+                let lostIDs = selectedDeviceIDs.subtracting(connectedIDs)
+                if !lostIDs.isEmpty {
+                    let lostNames = self.devices.filter { lostIDs.contains($0.id) }.map(\.name)
+                    // Stop simulation immediately
+                    if isSimulating {
+                        await clearLocation()
+                    }
+                    devicesConfirmed = false
+                    disconnectedDeviceNames = lostNames
+                }
+            }
+
             self.devices = parsed
 
             if parsed.isEmpty {
@@ -318,10 +334,6 @@ class DeviceManager: ObservableObject {
             } else {
                 // Remove selections for disconnected devices
                 selectedDeviceIDs = selectedDeviceIDs.intersection(connectedIDs)
-                // Auto-select all if nothing was selected
-                if selectedDeviceIDs.isEmpty {
-                    selectedDeviceIDs = connectedIDs
-                }
                 let count = parsed.count
                 if count == 1, let dev = parsed.first {
                     statusMessage = "已連接: \(dev.name) (iOS \(dev.osVersion))"

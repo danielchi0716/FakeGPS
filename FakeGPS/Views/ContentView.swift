@@ -13,7 +13,6 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Main content
             HSplitView {
                 leftPanel
                     .frame(minWidth: 270, idealWidth: 310, maxWidth: 370)
@@ -35,109 +34,169 @@ struct ContentView: View {
         }
         .frame(minWidth: 800, minHeight: 600)
         .task {
-            // 取得目前位置作為預設座標
             let helper = LocationHelper()
             if let coord = await helper.getCurrentLocation() {
                 selectedLatitude = coord.latitude
                 selectedLongitude = coord.longitude
             }
-            // 啟動 tunnel（會提示管理員密碼），啟動後自動偵測裝置
             await deviceManager.startTunnel()
             await deviceManager.detectDevice()
         }
+        .alert("裝置已斷線", isPresented: showDisconnectAlert) {
+            Button("確定") {
+                routeSimulator.stop()
+                deviceManager.disconnectedDeviceNames = []
+            }
+        } message: {
+            Text("\(deviceManager.disconnectedDeviceNames.joined(separator: "、")) 已斷線，模擬已停止。")
+        }
+        .onChange(of: deviceManager.disconnectedDeviceNames) { _, names in
+            if !names.isEmpty {
+                routeSimulator.stop()
+            }
+        }
+    }
+
+    private var showDisconnectAlert: Binding<Bool> {
+        Binding(
+            get: { !deviceManager.disconnectedDeviceNames.isEmpty },
+            set: { if !$0 { deviceManager.disconnectedDeviceNames = [] } }
+        )
     }
 
     // MARK: - Left Panel
 
     private var leftPanel: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // ---- Device Section ----
-                DeviceStatusView()
+        VStack(spacing: 0) {
+            ConnectionBarView()
+
+            Divider()
+
+            if !deviceManager.devicesConfirmed {
+                // Step: Device selection
+                deviceSelectionPanel
+            } else {
+                // Step: Simulation controls
+                ScrollView {
+                    VStack(alignment: .leading, spacing: FGSpacing.section) {
+                        // Mode picker
+                        Picker("模式", selection: $selectedTab) {
+                            Text("定點").tag(0)
+                            Text("路線").tag(1)
+                        }
+                        .pickerStyle(.segmented)
+
+                        if selectedTab == 0 {
+                            singlePointSection
+                        } else {
+                            routeSection
+                        }
+
+                        if let error = deviceManager.errorMessage {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .padding(8)
+                                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                    .padding(FGSpacing.panelPadding)
+                }
 
                 Divider()
 
-                // ---- Location Section ----
-                locationSection
+                savedItemsPanel
             }
-            .padding()
         }
     }
 
-    // MARK: - Location Section
+    // MARK: - Device Selection
 
-    private var locationSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("定位控制", systemImage: "location")
-                .font(.headline)
+    private var deviceSelectionPanel: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: FGSpacing.item) {
+                    Label("選擇裝置", systemImage: "iphone.gen3")
+                        .font(.headline)
 
-            // Mode picker
-            Picker("模式", selection: $selectedTab) {
-                Text("定點").tag(0)
-                Text("路線").tag(1)
-            }
-            .pickerStyle(.segmented)
+                    if deviceManager.devices.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "iphone.slash")
+                                .font(.largeTitle)
+                                .foregroundStyle(.secondary)
+                            Text("未偵測到裝置")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text("請確認 iPhone 已透過 USB 或 Wi-Fi 連接")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                    } else {
+                        if deviceManager.devices.count > 1 {
+                            HStack(spacing: 8) {
+                                Button("全選") { deviceManager.selectAllDevices() }
+                                    .font(.caption)
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.mini)
+                                    .disabled(deviceManager.selectedDeviceIDs.count == deviceManager.devices.count)
+                                Button("取消全選") { deviceManager.deselectAllDevices() }
+                                    .font(.caption)
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.mini)
+                                    .disabled(deviceManager.selectedDeviceIDs.isEmpty)
+                            }
+                        }
 
-            if !isTunnelReady {
-                GroupBox {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text("請先啟動 Tunnel 再操作定位功能")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        ForEach(deviceManager.devices) { device in
+                            let isSelected = deviceManager.selectedDeviceIDs.contains(device.id)
+                            HStack(spacing: 8) {
+                                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(isSelected ? .blue : .secondary)
+                                    .font(.body)
+                                connectionIcon(for: device)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(device.name)
+                                        .font(.callout)
+                                        .fontWeight(isSelected ? .semibold : .medium)
+                                    Text("\(device.productType) · iOS \(device.osVersion)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .cardStyle(isSelected: isSelected)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                deviceManager.toggleDevice(device)
+                            }
+                        }
                     }
                 }
-            }
-
-            if selectedTab == 0 {
-                singlePointPanel
-                    .disabled(!isTunnelReady)
-                    .opacity(isTunnelReady ? 1 : 0.5)
-            } else {
-                RouteView(routeSimulator: routeSimulator, savedRouteStore: savedRouteStore) {
-                    routeSimulator.addPoint(
-                        latitude: selectedLatitude,
-                        longitude: selectedLongitude
-                    )
-                }
-                .disabled(!isTunnelReady)
-                .opacity(isTunnelReady ? 1 : 0.5)
+                .padding(FGSpacing.panelPadding)
             }
 
             Divider()
 
-            SavedLocationsView(
-                store: savedLocationStore,
-                latitude: $selectedLatitude,
-                longitude: $selectedLongitude
-            ) {
-                // 選取收藏地點時自動設定位置
-                if isTunnelReady {
-                    Task {
-                        await deviceManager.setLocation(
-                            latitude: selectedLatitude,
-                            longitude: selectedLongitude
-                        )
-                    }
-                }
+            // Confirm button
+            Button {
+                deviceManager.devicesConfirmed = true
+            } label: {
+                Label("確認選擇", systemImage: "checkmark.circle")
+                    .frame(maxWidth: .infinity)
             }
-
-            // Error display
-            if let error = deviceManager.errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(8)
-                    .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
-            }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+            .disabled(deviceManager.selectedDeviceIDs.isEmpty)
+            .padding(FGSpacing.panelPadding)
         }
     }
 
     // MARK: - Single Point
 
-    private var singlePointPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var singlePointSection: some View {
+        VStack(alignment: .leading, spacing: FGSpacing.item) {
             CoordinateInputView(
                 latitude: $selectedLatitude,
                 longitude: $selectedLongitude
@@ -156,34 +215,77 @@ struct ContentView: View {
             }
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
-            .disabled(deviceManager.selectedDeviceIDs.isEmpty)
-
-            Button {
-                Task { await deviceManager.clearLocation() }
-            } label: {
-                Label("重置定位", systemImage: "location.slash")
-                    .frame(maxWidth: .infinity)
-            }
-            .controlSize(.large)
-            .buttonStyle(.bordered)
-            .disabled(!deviceManager.isSimulating)
 
             if deviceManager.isSimulating {
-                Divider()
+                Button {
+                    Task { await deviceManager.clearLocation() }
+                } label: {
+                    Label("重置定位", systemImage: "location.slash")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
 
-                JoystickControlView(
-                    latitude: $selectedLatitude,
-                    longitude: $selectedLongitude
-                ) {
-                    Task {
-                        await deviceManager.setLocation(
-                            latitude: selectedLatitude,
-                            longitude: selectedLongitude
-                        )
+            if deviceManager.isSimulating {
+                DisclosureGroup("移動控制") {
+                    JoystickControlView(
+                        latitude: $selectedLatitude,
+                        longitude: $selectedLongitude
+                    ) {
+                        Task {
+                            await deviceManager.setLocation(
+                                latitude: selectedLatitude,
+                                longitude: selectedLongitude
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    // MARK: - Route
+
+    private var routeSection: some View {
+        RouteView(routeSimulator: routeSimulator, savedRouteStore: savedRouteStore) {
+            routeSimulator.addPoint(
+                latitude: selectedLatitude,
+                longitude: selectedLongitude
+            )
+        }
+    }
+
+    // MARK: - Saved Items (fixed bottom panel)
+
+    private var savedItemsPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: FGSpacing.item) {
+                if selectedTab == 0 {
+                    SavedLocationsView(
+                        store: savedLocationStore,
+                        latitude: $selectedLatitude,
+                        longitude: $selectedLongitude
+                    ) {
+                        Task {
+                            await deviceManager.setLocation(
+                                latitude: selectedLatitude,
+                                longitude: selectedLongitude
+                            )
+                        }
+                    }
+                } else {
+                    SavedRoutesView(
+                        store: savedRouteStore,
+                        currentPoints: routeSimulator.routePoints
+                    ) { points in
+                        routeSimulator.loadPoints(points)
+                    }
+                }
+            }
+            .padding(FGSpacing.panelPadding)
+        }
+        .frame(maxHeight: 200)
+        .background(.bar.opacity(0.5))
     }
 
     // MARK: - Status Bar
@@ -231,10 +333,19 @@ struct ContentView: View {
         }
     }
 
-    /// Tunnel 是否就緒（需要 tunnel 才能模擬定位）
-    private var isTunnelReady: Bool {
-        guard !deviceManager.selectedDeviceIDs.isEmpty else { return false }
-        return deviceManager.tunnelRunning
+    // MARK: - Helpers
+
+    @ViewBuilder
+    private func connectionIcon(for device: DeviceInfo) -> some View {
+        if device.connectionType == .network {
+            Image(systemName: "wifi")
+                .foregroundStyle(.green)
+                .font(.caption)
+        } else {
+            Image(systemName: "cable.connector")
+                .foregroundStyle(.secondary)
+                .font(.caption)
+        }
     }
 
     private var statusColor: Color {

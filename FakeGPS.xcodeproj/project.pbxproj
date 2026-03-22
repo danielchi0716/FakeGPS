@@ -11,7 +11,8 @@
 		AA000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000002; };
 		AA000003 /* MapPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000003; };
 		AA000004 /* CoordinateInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000004; };
-		AA000005 /* DeviceStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000005; };
+		AA000024 /* ConnectionBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000024; };
+		AA000025 /* FakeGPSStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000025; };
 		AA000006 /* DeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000006; };
 		AA000007 /* DeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000007; };
 		AA000008 /* ShellExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000008; };
@@ -34,7 +35,8 @@
 		AB000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AB000003 /* MapPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapPickerView.swift; sourceTree = "<group>"; };
 		AB000004 /* CoordinateInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinateInputView.swift; sourceTree = "<group>"; };
-		AB000005 /* DeviceStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceStatusView.swift; sourceTree = "<group>"; };
+		AB000024 /* ConnectionBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionBarView.swift; sourceTree = "<group>"; };
+		AB000025 /* FakeGPSStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeGPSStyles.swift; sourceTree = "<group>"; };
 		AB000006 /* DeviceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceInfo.swift; sourceTree = "<group>"; };
 		AB000007 /* DeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceManager.swift; sourceTree = "<group>"; };
 		AB000008 /* ShellExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellExecutor.swift; sourceTree = "<group>"; };
@@ -115,7 +117,8 @@
 				AB000002 /* ContentView.swift */,
 				AB000003 /* MapPickerView.swift */,
 				AB000004 /* CoordinateInputView.swift */,
-				AB000005 /* DeviceStatusView.swift */,
+				AB000024 /* ConnectionBarView.swift */,
+				AB000025 /* FakeGPSStyles.swift */,
 				AB000012 /* RouteView.swift */,
 				AB000015 /* JoystickControlView.swift */,
 				AB000018 /* SavedLocationsView.swift */,
@@ -224,7 +227,8 @@
 				AA000002 /* ContentView.swift in Sources */,
 				AA000003 /* MapPickerView.swift in Sources */,
 				AA000004 /* CoordinateInputView.swift in Sources */,
-				AA000005 /* DeviceStatusView.swift in Sources */,
+				AA000024 /* ConnectionBarView.swift in Sources */,
+				AA000025 /* FakeGPSStyles.swift in Sources */,
 				AA000006 /* DeviceInfo.swift in Sources */,
 				AA000007 /* DeviceManager.swift in Sources */,
 				AA000008 /* ShellExecutor.swift in Sources */,

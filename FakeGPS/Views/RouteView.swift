@@ -10,12 +10,15 @@ struct RouteView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("路線模擬")
-                    .font(.headline)
-                Spacer()
-                Text("\(routeSimulator.routePoints.count) 個點")
+                Text("\(routeSimulator.routePoints.count) 個路線點")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Spacer()
+                if routeSimulator.routePoints.count >= 2 {
+                    Text(routeSimulator.totalDistanceFormatted)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             // Speed range control
@@ -73,12 +76,6 @@ struct RouteView: View {
                 .font(.subheadline)
                 .disabled(routeSimulator.isRunning)
 
-            if routeSimulator.routePoints.count >= 2 {
-                Text("總距離: \(routeSimulator.totalDistanceFormatted)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             // Point list
             if routeSimulator.routePoints.isEmpty {
                 Text("在地圖上點選位置後，按「加入路線」來新增路線點")
@@ -125,6 +122,7 @@ struct RouteView: View {
                 }
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
                 .cornerRadius(6)
+                .frame(maxHeight: 150)
             }
 
             // Action buttons
@@ -147,15 +145,6 @@ struct RouteView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
-            }
-
-            Divider()
-
-            SavedRoutesView(
-                store: savedRouteStore,
-                currentPoints: routeSimulator.routePoints
-            ) { points in
-                routeSimulator.loadPoints(points)
             }
 
             // Start/Stop

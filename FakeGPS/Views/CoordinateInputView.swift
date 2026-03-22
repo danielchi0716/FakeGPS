@@ -10,9 +10,6 @@ struct CoordinateInputView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("座標輸入")
-                .font(.headline)
-
             LabeledContent("緯度") {
                 TextField("-90 ~ 90", text: $latText)
                     .textFieldStyle(.roundedBorder)
@@ -33,10 +30,6 @@ struct CoordinateInputView: View {
                     .foregroundStyle(.red)
             }
 
-            Button("套用座標") {
-                applyCoordinates()
-            }
-            .buttonStyle(.bordered)
         }
         .onAppear { syncFromBinding() }
         .onChange(of: latitude) { _, _ in syncFromBinding() }
