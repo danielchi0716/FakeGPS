@@ -41,6 +41,8 @@ struct ContentView: View {
                 selectedLatitude = coord.latitude
                 selectedLongitude = coord.longitude
             }
+            // 啟動 tunnel（會提示管理員密碼），啟動後自動偵測裝置
+            await deviceManager.startTunnel()
             await deviceManager.detectDevice()
         }
     }

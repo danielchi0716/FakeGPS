@@ -15,6 +15,10 @@ struct DeviceStatusView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if deviceManager.isDetecting {
+                    ProgressView()
+                        .controlSize(.small)
+                }
                 Button {
                     Task { await deviceManager.detectDevice() }
                 } label: {
@@ -26,14 +30,7 @@ struct DeviceStatusView: View {
                 .disabled(deviceManager.isDetecting)
             }
 
-            if deviceManager.isDetecting {
-                HStack {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("偵測中...")
-                        .foregroundStyle(.secondary)
-                }
-            } else if deviceManager.devices.isEmpty {
+            if deviceManager.devices.isEmpty && !deviceManager.isDetecting {
                 GroupBox {
                     HStack {
                         Image(systemName: "iphone.slash")
@@ -103,28 +100,22 @@ struct DeviceStatusView: View {
                 }
             }
 
-            // Tunnel control — always visible (needed for wireless device discovery)
-            GroupBox {
-                HStack {
-                    Circle()
-                        .fill(deviceManager.tunnelRunning ? .green : .orange)
-                        .frame(width: 8, height: 8)
-                    Text(deviceManager.tunnelRunning ? "Tunnel 已連線" : "Tunnel 未連線")
-                        .font(.caption)
-                    Spacer()
-                    if deviceManager.tunnelRunning {
-                        Button("停止") {
-                            Task { await deviceManager.stopTunnel() }
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-                    } else {
-                        Button("啟動") {
-                            Task { await deviceManager.startTunnel() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.mini)
+            // Tunnel status
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(deviceManager.tunnelRunning ? .green : .orange)
+                    .frame(width: 8, height: 8)
+                Text(deviceManager.tunnelRunning ? "Tunnel 運行中" : "Tunnel 未啟動")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !deviceManager.tunnelRunning {
+                    Button("重新啟動") {
+                        Task { await deviceManager.startTunnel() }
                     }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
                 }
             }
         }

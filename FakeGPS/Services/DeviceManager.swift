@@ -31,7 +31,7 @@ class DeviceManager: ObservableObject {
         selectedDevices.contains { $0.isiOS17OrLater }
     }
 
-    private var tunnelProcess: Process?
+    private var tunnelProcess: PrivilegedProcess?
 
     /// Per-device streamer state, keyed by device UDID.
     private struct StreamerState {
@@ -43,6 +43,7 @@ class DeviceManager: ObservableObject {
 
     private var usbWatcher: USBWatcher?
     private var debounceTask: Task<Void, Never>?
+    private var networkPollTask: Task<Void, Never>?
 
     /// Path to bundled helper binary, or nil if not found (dev mode).
     private var helperPath: String?
@@ -68,6 +69,7 @@ class DeviceManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             self?.usbWatcher?.stop()
+            self?.networkPollTask?.cancel()
             self?.killAllStreamers()
             self?.stopTunnelSync()
         }
@@ -83,6 +85,29 @@ class DeviceManager: ObservableObject {
                 return // cancelled
             }
             await self?.detectDevice()
+        }
+    }
+
+    /// Start periodic polling for network device changes (every 10s).
+    /// Only runs while network devices are connected or tunnel is running.
+    private func startNetworkPollingIfNeeded() {
+        let hasNetworkDevices = devices.contains { $0.connectionType == .network }
+        guard hasNetworkDevices || tunnelRunning else {
+            networkPollTask?.cancel()
+            networkPollTask = nil
+            return
+        }
+        // Already polling
+        guard networkPollTask == nil else { return }
+        networkPollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(10))
+                } catch {
+                    return
+                }
+                await self?.detectDevice()
+            }
         }
     }
 
@@ -257,15 +282,11 @@ class DeviceManager: ObservableObject {
             if result.exitCode != 0 {
                 statusMessage = "偵測裝置失敗"
                 errorMessage = result.error.isEmpty ? "指令執行失敗 (exit code: \(result.exitCode))" : result.error
-                devices = []
-                selectedDeviceIDs = []
                 return
             }
 
             guard let data = result.output.data(using: .utf8) else {
                 statusMessage = "無法解析裝置資料"
-                devices = []
-                selectedDeviceIDs = []
                 return
             }
 
@@ -311,9 +332,9 @@ class DeviceManager: ObservableObject {
         } catch {
             statusMessage = "偵測裝置時發生錯誤"
             errorMessage = error.localizedDescription
-            devices = []
-            selectedDeviceIDs = []
         }
+
+        startNetworkPollingIfNeeded()
     }
 
     /// Run the list command using Python script or pymobiledevice3 CLI fallback.
@@ -358,75 +379,69 @@ class DeviceManager: ObservableObject {
         }
 
         do {
-            let (process, stdoutPipe, stderrPipe) = try await ShellExecutor.startSudoProcess(
+            let privileged = try await ShellExecutor.startSudoProcess(
                 command: command,
                 arguments: arguments,
                 cleanupBefore: "pkill -f 'location_streamer.*tunneld' 2>/dev/null; pkill -f 'pymobiledevice3.*tunneld' 2>/dev/null; lsof -ti :49151 | xargs kill -9 2>/dev/null; sleep 1"
             )
-            tunnelProcess = process
+            tunnelProcess = privileged
             statusMessage = "Tunneld 啟動中..."
 
-            let outputCollector = LockedValue("")
-            let errorCollector = LockedValue("")
-
-            // Monitor stdout for ready signal
+            // Monitor stderr for tunnel creation log + process exit
             Task.detached { [weak self] in
-                let handle = stdoutPipe.fileHandleForReading
-                while true {
-                    let data = handle.availableData
-                    if data.isEmpty { break }
-                    if let line = String(data: data, encoding: .utf8) {
-                        outputCollector.update { $0 += line }
+                // Wait for output files to be created
+                try? await Task.sleep(for: .milliseconds(500))
+
+                let stderrHandle = FileHandle(forReadingAtPath: privileged.stderrPath)
+
+                while privileged.isRunning {
+                    if let handle = stderrHandle, handle.availableData.count > 0 {
+                        // Re-read to get new content
                     }
-                }
-            }
-
-            // Monitor stderr for tunnel creation log
-            Task.detached { [weak self] in
-                let handle = stderrPipe.fileHandleForReading
-                while true {
-                    let data = handle.availableData
-                    if data.isEmpty { break }
-                    if let line = String(data: data, encoding: .utf8) {
-                        errorCollector.update { $0 += line }
-                        let lower = line.lowercased()
-                        if lower.contains("tunnel created") || lower.contains("ready") {
-                            await MainActor.run {
+                    // Periodically check stderr file for "tunnel created" / "ready"
+                    if let data = FileManager.default.contents(atPath: privileged.stderrPath),
+                       let text = String(data: data, encoding: .utf8)?.lowercased(),
+                       text.contains("tunnel created") || text.contains("ready") {
+                        await MainActor.run {
+                            if !(self?.tunnelRunning ?? true) {
                                 self?.tunnelRunning = true
                                 self?.statusMessage = "Tunneld 已啟動"
+                                self?.scheduleDetection()
                             }
                         }
                     }
+                    try? await Task.sleep(for: .seconds(1))
                 }
-            }
 
-            // Wait a few seconds then check if tunneld is responding
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(5))
-                if process.isRunning {
-                    self?.tunnelRunning = true
-                    self?.statusMessage = "Tunneld 已啟動"
-                }
-            }
+                stderrHandle?.closeFile()
 
-            // Monitor process exit
-            Task.detached { [weak self] in
-                process.waitUntilExit()
-                let exitCode = process.terminationStatus
-                let stdout = outputCollector.value
-                let stderr = errorCollector.value
+                // Process exited
+                let stderr = (try? String(contentsOfFile: privileged.stderrPath, encoding: .utf8)) ?? ""
+                let stdout = (try? String(contentsOfFile: privileged.stdoutPath, encoding: .utf8)) ?? ""
                 await MainActor.run {
                     self?.tunnelRunning = false
                     self?.tunnelProcess = nil
-                    if exitCode != 0 {
-                        self?.statusMessage = "Tunneld 已停止（exit code: \(exitCode)）"
-                        let combined = (stderr + "\n" + stdout).trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !combined.isEmpty {
-                            self?.errorMessage = String(combined.suffix(500))
-                        }
+                    self?.networkPollTask?.cancel()
+                    self?.networkPollTask = nil
+                    let combined = (stderr + "\n" + stdout).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !combined.isEmpty {
+                        self?.statusMessage = "Tunneld 已停止"
+                        self?.errorMessage = String(combined.suffix(500))
                     } else {
                         self?.statusMessage = "Tunneld 已停止"
                     }
+                    self?.scheduleDetection()
+                    privileged.cleanup()
+                }
+            }
+
+            // Fallback: if no "ready" signal after 5 seconds but process is alive, assume running
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                if privileged.isRunning && !(self?.tunnelRunning ?? true) {
+                    self?.tunnelRunning = true
+                    self?.statusMessage = "Tunneld 已啟動"
+                    self?.scheduleDetection()
                 }
             }
         } catch {
@@ -441,10 +456,11 @@ class DeviceManager: ObservableObject {
 
     private func stopTunnelSync() {
         if let process = tunnelProcess, process.isRunning {
-            let pid = process.processIdentifier
+            let pid = process.pid
             process.terminate()
             let killScript = "kill -- -\(pid) 2>/dev/null; pkill -P \(pid) 2>/dev/null; pkill -f 'location_streamer.*tunneld' 2>/dev/null; pkill -f 'pymobiledevice3.*tunneld' 2>/dev/null; lsof -ti :49151 | xargs kill -9 2>/dev/null; true"
             try? Process.run(URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", killScript])
+            process.cleanup()
         }
         tunnelProcess = nil
         tunnelRunning = false

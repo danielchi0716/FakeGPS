@@ -6,6 +6,52 @@ struct ShellResult {
     let error: String
 }
 
+/// Handle for a privileged background process started via macOS authorization.
+/// Monitors the process via PID and reads output from temp files.
+class PrivilegedProcess {
+    let pid: pid_t
+    let stdoutPath: String
+    let stderrPath: String
+
+    init(pid: pid_t, stdoutPath: String, stderrPath: String) {
+        self.pid = pid
+        self.stdoutPath = stdoutPath
+        self.stderrPath = stderrPath
+    }
+
+    var isRunning: Bool {
+        // kill(pid, 0) returns 0 if we have permission, or -1 with errno.
+        // EPERM means process exists but is owned by another user (root) — still running.
+        // ESRCH means process does not exist — not running.
+        if kill(pid, 0) == 0 { return true }
+        return errno == EPERM
+    }
+
+    func terminate() {
+        kill(pid, SIGTERM)
+    }
+
+    func forceKill() {
+        kill(pid, SIGKILL)
+    }
+
+    /// Block until the process exits (polls since we can't waitpid on non-child root processes).
+    func waitUntilExit() {
+        while isRunning {
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+    }
+
+    func cleanup() {
+        try? FileManager.default.removeItem(atPath: stdoutPath)
+        try? FileManager.default.removeItem(atPath: stderrPath)
+    }
+
+    deinit {
+        cleanup()
+    }
+}
+
 actor ShellExecutor {
 
     /// Run a command asynchronously and return its result after it finishes.
@@ -66,86 +112,76 @@ actor ShellExecutor {
         }
     }
 
-    /// Prompt the user for their admin password using AppleScript dialog, then
-    /// start a long-running sudo process (e.g. tunnel). Returns the Process handle.
-    /// If `cleanupBefore` is provided, it runs that shell command with sudo first (same password, no extra prompt).
-    static func startSudoProcess(command: String, arguments: [String] = [], cleanupBefore: String? = nil) async throws -> (Process, Pipe, Pipe) {
-        let password = try await promptForPassword()
-        let passwordData = (password + "\n").data(using: .utf8)!
+    /// Start a long-running privileged process using macOS native authorization dialog.
+    /// Uses `do shell script ... with administrator privileges` (AppleScript) to show the
+    /// system authentication prompt, then runs the command as root in the background.
+    /// Returns a PrivilegedProcess handle for monitoring and cleanup.
+    static func startSudoProcess(command: String, arguments: [String] = [], cleanupBefore: String? = nil) async throws -> PrivilegedProcess {
+        let stdoutPath = NSTemporaryDirectory() + "fakegps_sudo_stdout_\(ProcessInfo.processInfo.processIdentifier)"
+        let stderrPath = NSTemporaryDirectory() + "fakegps_sudo_stderr_\(ProcessInfo.processInfo.processIdentifier)"
 
-        // Run cleanup command with the same password if needed
+        // Pre-create output files as current user so they remain user-owned and deletable
+        FileManager.default.createFile(atPath: stdoutPath, contents: nil)
+        FileManager.default.createFile(atPath: stderrPath, contents: nil)
+
+        // Write a shell script to a temp file to avoid AppleScript escaping issues
+        let shellScriptPath = NSTemporaryDirectory() + "fakegps_sudo_cmd_\(ProcessInfo.processInfo.processIdentifier).sh"
+        var shellLines = ["#!/bin/sh"]
         if let cleanup = cleanupBefore {
-            let cleanupProcess = Process()
-            let cleanupStdin = Pipe()
-            cleanupProcess.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            cleanupProcess.arguments = ["-S", "/bin/sh", "-c", cleanup]
-            cleanupProcess.standardInput = cleanupStdin
-            cleanupProcess.standardOutput = FileHandle.nullDevice
-            cleanupProcess.standardError = FileHandle.nullDevice
-            try cleanupProcess.run()
-            cleanupStdin.fileHandleForWriting.write(passwordData)
-            cleanupStdin.fileHandleForWriting.closeFile()
-            cleanupProcess.waitUntilExit()
+            shellLines.append(cleanup)
         }
+        let escapedArgs = arguments.map { "'\($0)'" }.joined(separator: " ")
+        shellLines.append("'\(command)' \(escapedArgs) >> '\(stdoutPath)' 2>> '\(stderrPath)' &")
+        shellLines.append("echo $!")
+        try shellLines.joined(separator: "\n").write(toFile: shellScriptPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shellScriptPath)
 
-        let process = Process()
-        let stdinPipe = Pipe()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
+        // AppleScript: run the shell script file with administrator privileges
+        let appleScript = "do shell script \"'\(shellScriptPath)'\" with administrator privileges"
 
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-        process.arguments = ["-S", command] + arguments
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        // Run osascript — this shows the native macOS authorization dialog
+        let osascript = Process()
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        osascript.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        osascript.arguments = ["-e", appleScript]
+        osascript.standardOutput = outPipe
+        osascript.standardError = errPipe
 
-        try process.run()
+        let pidString: String = try await withCheckedThrowingContinuation { continuation in
+            osascript.terminationHandler = { _ in
+                let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: outData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        // Write password to stdin for sudo -S (sudo caches credentials briefly, but send it anyway)
-        stdinPipe.fileHandleForWriting.write(passwordData)
-
-        return (process, stdoutPipe, stderrPipe)
-    }
-
-    /// Show a macOS password prompt via AppleScript and return the entered password.
-    private static func promptForPassword() async throws -> String {
-        let script = """
-        tell application "System Events"
-            set pwd to text returned of (display dialog "FakeGPS 需要管理員權限來啟動 Tunnel\n請輸入 Mac 登入密碼：" default answer "" with hidden answer with title "輸入密碼" buttons {"取消", "確定"} default button "確定")
-        end tell
-        """
-
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", script]
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        return try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { _ in
-                let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let password = String(data: outData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-                if process.terminationStatus != 0 || password.isEmpty {
+                if osascript.terminationStatus != 0 || output.isEmpty {
+                    // Clean up temp files on failure
+                    try? FileManager.default.removeItem(atPath: stdoutPath)
+                    try? FileManager.default.removeItem(atPath: stderrPath)
                     continuation.resume(throwing: NSError(
                         domain: "ShellExecutor",
                         code: -1,
-                        userInfo: [NSLocalizedDescriptionKey: "使用者取消了密碼輸入"]
+                        userInfo: [NSLocalizedDescriptionKey: "使用者取消了授權"]
                     ))
                 } else {
-                    continuation.resume(returning: password)
+                    continuation.resume(returning: output)
                 }
             }
 
             do {
-                try process.run()
+                try osascript.run()
             } catch {
                 continuation.resume(throwing: error)
             }
         }
+
+        // Clean up temp shell script
+        try? FileManager.default.removeItem(atPath: shellScriptPath)
+
+        guard let pid = pid_t(pidString) else {
+            throw NSError(domain: "ShellExecutor", code: -1, userInfo: [NSLocalizedDescriptionKey: "無法取得背景程序 PID"])
+        }
+
+        return PrivilegedProcess(pid: pid, stdoutPath: stdoutPath, stderrPath: stderrPath)
     }
 
     /// Run a command that doesn't exit on its own (e.g. `simulate-location set`).
