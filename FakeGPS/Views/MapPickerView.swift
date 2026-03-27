@@ -7,6 +7,10 @@ struct MapPickerView: View {
 
     var routePoints: [RoutePoint] = []
     var currentPosition: CLLocationCoordinate2D?
+    var onDoubleClick: ((CLLocationCoordinate2D) -> Void)?
+
+    /// Set this to a route point index to move the camera there.
+    @Binding var focusRoutePointIndex: Int?
 
     @State private var cameraPosition: MapCameraPosition = .region(
         MKCoordinateRegion(
@@ -18,6 +22,8 @@ struct MapPickerView: View {
     @State private var pinLocation: CLLocationCoordinate2D?
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
+    @State private var currentZoom: MKCoordinateSpan = MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+    @State private var userLocation: CLLocationCoordinate2D?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -27,6 +33,24 @@ struct MapPickerView: View {
                     if let pin = pinLocation {
                         Marker("選擇的位置", coordinate: pin)
                             .tint(.red)
+                    }
+
+                    // User's real location (blue dot)
+                    if let loc = userLocation {
+                        Annotation("", coordinate: loc) {
+                            ZStack {
+                                Circle()
+                                    .fill(.blue.opacity(0.2))
+                                    .frame(width: 28, height: 28)
+                                Circle()
+                                    .fill(.blue)
+                                    .frame(width: 10, height: 10)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(.white, lineWidth: 2)
+                                    )
+                            }
+                        }
                     }
 
                     // Route points
@@ -65,8 +89,17 @@ struct MapPickerView: View {
                         }
                     }
                 }
+                .onTapGesture(count: 2) { screenCoord in
+                    if let coordinate = proxy.convert(screenCoord, from: .local) {
+                        pinLocation = coordinate
+                        selectedLatitude = coordinate.latitude
+                        selectedLongitude = coordinate.longitude
+                        onDoubleClick?(coordinate)
+                    }
+                }
                 .onTapGesture { screenCoord in
                     if let coordinate = proxy.convert(screenCoord, from: .local) {
+                        // Only update pin and coordinates, don't move camera
                         pinLocation = coordinate
                         selectedLatitude = coordinate.latitude
                         selectedLongitude = coordinate.longitude
@@ -78,24 +111,62 @@ struct MapPickerView: View {
                     MapZoomStepper()
                 }
             }
-
             .onMapCameraChange { context in
                 currentZoom = context.region.span
             }
-            .onChange(of: selectedLatitude) { _, _ in syncPinFromBinding() }
-            .onChange(of: selectedLongitude) { _, _ in syncPinFromBinding() }
+            // Sync pin when coordinates change from external source (e.g. coordinate input),
+            // but don't move camera
+            .onChange(of: selectedLatitude) { _, _ in syncPinOnly() }
+            .onChange(of: selectedLongitude) { _, _ in syncPinOnly() }
+            // Navigate to route point when requested
+            .onChange(of: focusRoutePointIndex) { _, index in
+                if let index, routePoints.indices.contains(index) {
+                    let coord = routePoints[index].coordinate
+                    withAnimation {
+                        cameraPosition = .region(
+                            MKCoordinateRegion(center: coord, span: currentZoom)
+                        )
+                    }
+                    focusRoutePointIndex = nil
+                }
+            }
 
             // Search bar overlay
             VStack(spacing: 4) {
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("搜尋地點...", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .onSubmit { searchLocation() }
+                HStack(spacing: 6) {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("搜尋地點...", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .onSubmit { searchLocation() }
+                    }
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+
+                    Button {
+                        jumpToSelectedPin()
+                    } label: {
+                        Image(systemName: "mappin.and.ellipse")
+                            .font(.body)
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .help("移動到選擇的位置")
+                    .disabled(pinLocation == nil)
+
+                    Button {
+                        Task { await jumpToCurrentLocation() }
+                    } label: {
+                        Image(systemName: "location.fill")
+                            .font(.body)
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .help("跳到目前位置")
                 }
-                .padding(8)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .padding(.horizontal)
                 .padding(.top, 8)
 
@@ -129,18 +200,10 @@ struct MapPickerView: View {
         }
     }
 
-    private func syncPinFromBinding() {
-        let coord = CLLocationCoordinate2D(latitude: selectedLatitude, longitude: selectedLongitude)
-        pinLocation = coord
-        cameraPosition = .region(
-            MKCoordinateRegion(
-                center: coord,
-                span: currentZoom
-            )
-        )
+    /// Update pin position without moving camera.
+    private func syncPinOnly() {
+        pinLocation = CLLocationCoordinate2D(latitude: selectedLatitude, longitude: selectedLongitude)
     }
-
-    @State private var currentZoom: MKCoordinateSpan = MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
 
     private func searchLocation() {
         let request = MKLocalSearch.Request()
@@ -148,6 +211,31 @@ struct MapPickerView: View {
         let search = MKLocalSearch(request: request)
         search.start { response, _ in
             searchResults = response?.mapItems ?? []
+        }
+    }
+
+    private func jumpToSelectedPin() {
+        guard let pin = pinLocation else { return }
+        withAnimation {
+            cameraPosition = .region(
+                MKCoordinateRegion(center: pin, span: currentZoom)
+            )
+        }
+    }
+
+    /// Jump camera to Mac's current location and show blue dot, without changing pin.
+    private func jumpToCurrentLocation() async {
+        let helper = LocationHelper()
+        if let coord = await helper.getCurrentLocation() {
+            userLocation = coord
+            withAnimation {
+                cameraPosition = .region(
+                    MKCoordinateRegion(
+                        center: coord,
+                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                    )
+                )
+            }
         }
     }
 
@@ -159,18 +247,21 @@ struct MapPickerView: View {
         searchResults = []
         searchText = item.name ?? ""
 
-        cameraPosition = .region(
-            MKCoordinateRegion(
-                center: coord,
-                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        withAnimation {
+            cameraPosition = .region(
+                MKCoordinateRegion(
+                    center: coord,
+                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                )
             )
-        )
+        }
     }
 }
 
 #Preview {
     MapPickerView(
         selectedLatitude: .constant(25.033),
-        selectedLongitude: .constant(121.5654)
+        selectedLongitude: .constant(121.5654),
+        focusRoutePointIndex: .constant(nil)
     )
 }

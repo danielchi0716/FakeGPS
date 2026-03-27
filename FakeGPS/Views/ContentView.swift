@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var selectedLatitude: Double = 25.033
     @State private var selectedLongitude: Double = 121.5654
     @State private var selectedTab = 0 // 0: single point, 1: route
+    @State private var focusRoutePointIndex: Int?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,7 +22,14 @@ struct ContentView: View {
                     selectedLatitude: $selectedLatitude,
                     selectedLongitude: $selectedLongitude,
                     routePoints: routeSimulator.routePoints,
-                    currentPosition: routeSimulator.currentPosition
+                    currentPosition: routeSimulator.currentPosition,
+                    onDoubleClick: selectedTab == 1 && !routeSimulator.isRunning ? { coordinate in
+                        routeSimulator.addPoint(
+                            latitude: coordinate.latitude,
+                            longitude: coordinate.longitude
+                        )
+                    } : nil,
+                    focusRoutePointIndex: $focusRoutePointIndex
                 )
             }
 
@@ -67,45 +75,48 @@ struct ContentView: View {
     // MARK: - Left Panel
 
     private var leftPanel: some View {
-        VStack(spacing: 0) {
-            ConnectionBarView()
-
-            Divider()
-
-            if !deviceManager.devicesConfirmed {
-                // Step: Device selection
-                deviceSelectionPanel
-            } else {
-                // Step: Simulation controls
-                ScrollView {
-                    VStack(alignment: .leading, spacing: FGSpacing.section) {
-                        // Mode picker
-                        Picker("模式", selection: $selectedTab) {
-                            Text("定點").tag(0)
-                            Text("路線").tag(1)
-                        }
-                        .pickerStyle(.segmented)
-
-                        if selectedTab == 0 {
-                            singlePointSection
-                        } else {
-                            routeSection
-                        }
-
-                        if let error = deviceManager.errorMessage {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .padding(8)
-                                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
-                        }
-                    }
-                    .padding(FGSpacing.panelPadding)
-                }
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                ConnectionBarView()
 
                 Divider()
 
-                savedItemsPanel
+                if !deviceManager.devicesConfirmed {
+                    deviceSelectionPanel
+                } else {
+                    // Controls area (70%)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: FGSpacing.section) {
+                            Picker("模式", selection: $selectedTab) {
+                                Text("定點").tag(0)
+                                Text("路線").tag(1)
+                            }
+                            .pickerStyle(.segmented)
+
+                            if selectedTab == 0 {
+                                singlePointSection
+                            } else {
+                                routeSection
+                            }
+
+                            if let error = deviceManager.errorMessage {
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                                    .padding(8)
+                                    .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                            }
+                        }
+                        .padding(FGSpacing.panelPadding)
+                    }
+                    .frame(maxHeight: .infinity)
+
+                    Divider()
+
+                    // Saved items (30%)
+                    savedItemsPanel
+                        .frame(height: geo.size.height * 0.3)
+                }
             }
         }
     }
@@ -247,7 +258,7 @@ struct ContentView: View {
     // MARK: - Route
 
     private var routeSection: some View {
-        RouteView(routeSimulator: routeSimulator, savedRouteStore: savedRouteStore) {
+        RouteView(routeSimulator: routeSimulator, savedRouteStore: savedRouteStore, focusRoutePointIndex: $focusRoutePointIndex) {
             routeSimulator.addPoint(
                 latitude: selectedLatitude,
                 longitude: selectedLongitude
@@ -284,7 +295,6 @@ struct ContentView: View {
             }
             .padding(FGSpacing.panelPadding)
         }
-        .frame(maxHeight: 200)
         .background(.bar.opacity(0.5))
     }
 

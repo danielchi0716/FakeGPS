@@ -4,6 +4,7 @@ struct RouteView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @ObservedObject var routeSimulator: RouteSimulator
     @ObservedObject var savedRouteStore: SavedRouteStore
+    @Binding var focusRoutePointIndex: Int?
 
     var onAddCurrentLocation: () -> Void
 
@@ -72,57 +73,78 @@ struct RouteView: View {
                 }
             }
 
+            // Route mode picker
+            HStack {
+                Text("模式")
+                    .font(.subheadline)
+                Spacer()
+                Picker("", selection: $routeSimulator.routeMode) {
+                    ForEach(RouteMode.allCases) { mode in
+                        Label(mode.rawValue, systemImage: mode.icon).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 200)
+                .disabled(routeSimulator.isRunning)
+            }
+
             Toggle("路徑漂移", isOn: $routeSimulator.driftEnabled)
                 .font(.subheadline)
                 .disabled(routeSimulator.isRunning)
 
             // Point list
             if routeSimulator.routePoints.isEmpty {
-                Text("在地圖上點選位置後，按「加入路線」來新增路線點")
+                Text("在地圖上雙擊可直接加入路線點，或點選位置後按「加入路線」")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(routeSimulator.routePoints.enumerated()), id: \.element.id) { index, point in
-                        HStack {
-                            if routeSimulator.isRunning && routeSimulator.currentPointIndex == index {
-                                Image(systemName: "location.fill")
-                                    .foregroundStyle(.blue)
-                                    .font(.caption)
-                                    .frame(width: 20)
-                            } else {
-                                Text("\(index + 1)")
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(routeSimulator.routePoints.enumerated()), id: \.element.id) { index, point in
+                            HStack {
+                                if routeSimulator.isRunning && routeSimulator.currentPointIndex == index {
+                                    Image(systemName: "location.fill")
+                                        .foregroundStyle(.blue)
+                                        .font(.caption)
+                                        .frame(width: 20)
+                                } else {
+                                    Text("\(index + 1)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 20)
+                                }
+                                Text(point.displayString)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                    .frame(width: 20)
-                            }
-                            Text(point.displayString)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            if !routeSimulator.isRunning {
-                                Button {
-                                    routeSimulator.removePoint(at: index)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                        .font(.caption)
+                                Spacer()
+                                if !routeSimulator.isRunning {
+                                    Button {
+                                        routeSimulator.removePoint(at: index)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(.secondary)
+                                            .font(.caption)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
-                        }
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 6)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                focusRoutePointIndex = index
+                            }
 
-                        if index < routeSimulator.routePoints.count - 1 {
-                            Divider()
+                            if index < routeSimulator.routePoints.count - 1 {
+                                Divider()
+                            }
                         }
                     }
                 }
+                .frame(maxHeight: 150)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
                 .cornerRadius(6)
-                .frame(maxHeight: 150)
             }
 
             // Action buttons
